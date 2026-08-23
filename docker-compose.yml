@@ -1,0 +1,206 @@
+version: '3.8'
+
+services:
+  # Infrastructure Services
+  postgres:
+    image: postgres:15-alpine
+    container_name: mini-marketplace-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_MULTIPLE_DATABASES: userdb,productdb,orderdb,paymentdb
+    ports:
+      - "5433:5432"  # Using 5433 to avoid conflict with local PostgreSQL
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/docker/postgres-init.sh:/docker-entrypoint-initdb.d/postgres-init.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - marketplace-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: mini-marketplace-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - marketplace-network
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: mini-marketplace-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"
+      - "15672:15672"  # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - marketplace-network
+
+  # Microservices
+  user-service:
+    build:
+      context: ./services/user-service
+      dockerfile: Dockerfile
+    container_name: user-service
+    ports:
+      - "8001:8001"
+    environment:
+      - SERVICE_NAME=user-service
+      - PORT=8001
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/userdb
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - LOG_LEVEL=INFO
+      - ENVIRONMENT=development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - marketplace-network
+    restart: unless-stopped
+
+  product-service:
+    build:
+      context: ./services/product-service
+      dockerfile: Dockerfile
+    container_name: product-service
+    ports:
+      - "8002:8002"
+    environment:
+      - SERVICE_NAME=product-service
+      - PORT=8002
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/productdb
+      - REDIS_HOST=redis
+      - LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - marketplace-network
+    restart: unless-stopped
+
+  order-service:
+    build:
+      context: ./services/order-service
+      dockerfile: Dockerfile
+    container_name: order-service
+    ports:
+      - "8003:8003"
+    environment:
+      - SERVICE_NAME=order-service
+      - PORT=8003
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/orderdb
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - PAYMENT_SERVICE_URL=http://payment-service:8004
+      - LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - marketplace-network
+    restart: unless-stopped
+
+  payment-service:
+    build:
+      context: ./services/payment-service
+      dockerfile: Dockerfile
+    container_name: payment-service
+    ports:
+      - "8004:8004"
+    environment:
+      - SERVICE_NAME=payment-service
+      - PORT=8004
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/paymentdb
+      - LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - marketplace-network
+    restart: unless-stopped
+
+  notification-service:
+    build:
+      context: ./services/notification-service
+      dockerfile: Dockerfile
+    container_name: notification-service
+    ports:
+      - "8005:8005"
+    environment:
+      - SERVICE_NAME=notification-service
+      - PORT=8005
+      - RABBITMQ_HOST=rabbitmq
+      - LOG_LEVEL=INFO
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - marketplace-network
+    restart: unless-stopped
+
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: api-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      - SERVICE_NAME=api-gateway
+      - PORT=8000
+      - USER_SERVICE_URL=http://user-service:8001
+      - PRODUCT_SERVICE_URL=http://product-service:8002
+      - ORDER_SERVICE_URL=http://order-service:8003
+      - PAYMENT_SERVICE_URL=http://payment-service:8004
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8005
+      - LOG_LEVEL=INFO
+    depends_on:
+      - user-service
+      - product-service
+      - order-service
+      - payment-service
+      - notification-service
+    networks:
+      - marketplace-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+
+networks:
+  marketplace-network:
+    driver: bridge
