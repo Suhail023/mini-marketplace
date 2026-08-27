@@ -1,9 +1,4 @@
-# Pre-commit hook configuration for Mini Marketplace
-# Install: pip install pre-commit && pre-commit install
-# Run manually on all files: pre-commit run --all-files
-
 repos:
-  # ── Standard file hygiene ──────────────────────────────────────────────────
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:
@@ -16,32 +11,22 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=1000]
-      - id: debug-statements          # catches leftover breakpoint() / pdb
-      - id: check-case-conflict       # Windows/macOS safety
+      - id: debug-statements
+      - id: check-case-conflict
 
-  # ── Ruff: linting + import sorting (replaces flake8 + isort) ──────────────
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.5.7
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
         types_or: [python, pyi]
-      - id: ruff-format             # Ruff's formatter (compatible with Black)
+      - id: ruff-format
         types_or: [python, pyi]
 
-  # ── Black: opinionated code formatter ─────────────────────────────────────
-  - repo: https://github.com/psf/black
-    rev: 24.8.0
-    hooks:
-      - id: black
-        language_version: python3.11
-
-  # ── Mypy: static type checking ─────────────────────────────────────────────
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.11.1
     hooks:
       - id: mypy
-        # Run mypy per-service so each venv/type stubs are isolated
         pass_filenames: false
         args:
           - --config-file=pyproject.toml
