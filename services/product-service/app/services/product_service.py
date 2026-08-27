@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any
 
 from app.contracts.product import (
     ProductCreateContract,
@@ -19,7 +19,7 @@ class ProductService:
     def __init__(self, product_repository: ProductRepository):
         self.product_repository = product_repository
 
-    async def create_product(self, data: Dict[str, Any]) -> ProductResponse:
+    async def create_product(self, data: dict[str, Any]) -> ProductResponse:
         logger.info("Processing product creation request")
 
         try:
@@ -29,9 +29,7 @@ class ProductService:
 
         existing = await self.product_repository.get_by_sku(request_model.sku)
         if existing:
-            raise ConflictError(
-                f"Product with SKU '{request_model.sku}' already exists", "sku"
-            )
+            raise ConflictError(f"Product with SKU '{request_model.sku}' already exists", "sku")
 
         product_data = {
             "name": request_model.name,
@@ -74,9 +72,7 @@ class ProductService:
             total=len(products),
         )
 
-    async def update_product(
-        self, product_id: str, data: Dict[str, Any]
-    ) -> ProductResponse:
+    async def update_product(self, product_id: str, data: dict[str, Any]) -> ProductResponse:
         logger.info(f"Processing update product request for {product_id}")
 
         try:
@@ -120,9 +116,7 @@ class ProductService:
         logger.info(f"Successfully retrieved stock for {product_id}")
         return StockResponse.from_product_model(product)
 
-    async def decrement_stock(
-        self, product_id: str, data: Dict[str, Any]
-    ) -> StockResponse:
+    async def decrement_stock(self, product_id: str, data: dict[str, Any]) -> StockResponse:
         logger.info(f"Processing stock decrement request for {product_id}")
 
         try:
@@ -130,9 +124,7 @@ class ProductService:
         except Exception as e:
             raise ValidationError(str(e))
 
-        product = await self.product_repository.decrement_stock(
-            product_id, request_model.quantity
-        )
+        product = await self.product_repository.decrement_stock(product_id, request_model.quantity)
         if not product:
             raise NotFoundError("Product", product_id)
 

@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import Config, get_settings
-from app.database import init_db, close_db
+from app.database import close_db, init_db
 from app.models import Base
 from app.routers import products
 from app.utils.errors import AppError, ConflictError, NotFoundError, ValidationError
@@ -114,4 +114,5 @@ app = create_app()
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000)

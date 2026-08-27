@@ -1,10 +1,8 @@
-from typing import Optional
-
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.product import Product
-from app.utils.errors import AppError, NotFoundError
+from app.utils.errors import AppError
 from app.utils.logging import setup_logger
 
 logger = setup_logger(__name__)
@@ -23,23 +21,23 @@ class ProductRepository:
             return product
         except Exception as e:
             await self.db.rollback()
-            logger.error(f"Error creating product: {str(e)}")
+            logger.error(f"Error creating product: {e!s}")
             raise AppError("Failed to create product", 500)
 
-    async def get_by_id(self, product_id: str) -> Optional[Product]:
+    async def get_by_id(self, product_id: str) -> Product | None:
         try:
             return await self.db.get(Product, product_id)
         except Exception as e:
-            logger.error(f"Error fetching product {product_id}: {str(e)}")
+            logger.error(f"Error fetching product {product_id}: {e!s}")
             raise AppError("Failed to fetch product", 500)
 
-    async def get_by_sku(self, sku: str) -> Optional[Product]:
+    async def get_by_sku(self, sku: str) -> Product | None:
         try:
             stmt = select(Product).where(Product.sku == sku)
             result = await self.db.execute(stmt)
             return result.scalar_one_or_none()
         except Exception as e:
-            logger.error(f"Error fetching product by SKU {sku}: {str(e)}")
+            logger.error(f"Error fetching product by SKU {sku}: {e!s}")
             raise AppError("Failed to fetch product", 500)
 
     async def list_products(
@@ -56,10 +54,10 @@ class ProductRepository:
             result = await self.db.execute(stmt)
             return list(result.scalars().all())
         except Exception as e:
-            logger.error(f"Error listing products: {str(e)}")
+            logger.error(f"Error listing products: {e!s}")
             raise AppError("Failed to list products", 500)
 
-    async def update(self, product_id: str, updates: dict) -> Optional[Product]:
+    async def update(self, product_id: str, updates: dict) -> Product | None:
         try:
             product = await self.db.get(Product, product_id)
             if not product:
@@ -74,7 +72,7 @@ class ProductRepository:
             return product
         except Exception as e:
             await self.db.rollback()
-            logger.error(f"Error updating product {product_id}: {str(e)}")
+            logger.error(f"Error updating product {product_id}: {e!s}")
             raise AppError("Failed to update product", 500)
 
     async def delete(self, product_id: str) -> bool:
@@ -88,12 +86,10 @@ class ProductRepository:
             return True
         except Exception as e:
             await self.db.rollback()
-            logger.error(f"Error deleting product {product_id}: {str(e)}")
+            logger.error(f"Error deleting product {product_id}: {e!s}")
             raise AppError("Failed to delete product", 500)
 
-    async def decrement_stock(
-        self, product_id: str, quantity: int
-    ) -> Optional[Product]:
+    async def decrement_stock(self, product_id: str, quantity: int) -> Product | None:
         try:
             stmt = (
                 update(Product)
@@ -108,5 +104,5 @@ class ProductRepository:
             return await self.db.get(Product, product_id)
         except Exception as e:
             await self.db.rollback()
-            logger.error(f"Error decrementing stock for {product_id}: {str(e)}")
+            logger.error(f"Error decrementing stock for {product_id}: {e!s}")
             raise AppError("Failed to decrement stock", 500)

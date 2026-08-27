@@ -1,5 +1,4 @@
 import os
-from typing import Optional
 
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -17,7 +16,7 @@ engine = None
 async_session_factory = None
 
 
-def init_db(database_url: Optional[str] = None):
+def init_db(database_url: str | None = None):
     global engine, async_session_factory
 
     if database_url is None:

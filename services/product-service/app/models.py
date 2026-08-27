@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 import uuid
-from datetime import datetime, timezone
 
 from sqlalchemy import String, Text, func
 from sqlalchemy.orm import (
@@ -29,9 +29,7 @@ class Product(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     price: Mapped[float] = mapped_column(nullable=False)
     stock: Mapped[int] = mapped_column(nullable=False, default=0)
-    sku: Mapped[str] = mapped_column(
-        String(64), nullable=False, unique=True, index=True
-    )
+    sku: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
     is_active: Mapped[bool] = mapped_column(default=True)
 
     created_at: Mapped[datetime] = mapped_column(

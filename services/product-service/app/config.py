@@ -1,6 +1,5 @@
-import os
 from dataclasses import dataclass, field
-from typing import List
+import os
 
 from dotenv import load_dotenv
 
@@ -19,9 +18,7 @@ class DatabaseConfig:
     POOL_SIZE: int = int(os.getenv("SQLALCHEMY_POOL_SIZE", "10"))
     MAX_OVERFLOW: int = int(os.getenv("SQLALCHEMY_MAX_OVERFLOW", "20"))
     POOL_RECYCLE: int = int(os.getenv("SQLALCHEMY_POOL_RECYCLE", "3600"))
-    POOL_PRE_PING: bool = (
-        os.getenv("SQLALCHEMY_POOL_PRE_PING", "true").lower() == "true"
-    )
+    POOL_PRE_PING: bool = os.getenv("SQLALCHEMY_POOL_PRE_PING", "true").lower() == "true"
 
     @property
     def url(self) -> str:
@@ -34,10 +31,7 @@ class DatabaseConfig:
 
     @property
     def sync_url(self) -> str:
-        return (
-            f"postgresql://{self.USER}:{self.PASSWORD}"
-            f"@{self.HOST}:{self.PORT}/{self.NAME}"
-        )
+        return f"postgresql://{self.USER}:{self.PASSWORD}" f"@{self.HOST}:{self.PORT}/{self.NAME}"
 
 
 @dataclass
@@ -56,11 +50,9 @@ class Config:
     PORT: int = int(os.getenv("PORT", "8002"))
     TIMEZONE: str = os.getenv("TIMEZONE", "Asia/Kolkata")
 
-    CORS_ORIGINS: List[str] = field(
+    CORS_ORIGINS: list[str] = field(
         default_factory=lambda: (
-            os.getenv("CORS_ORIGINS", "").split(",")
-            if os.getenv("CORS_ORIGINS")
-            else ["*"]
+            os.getenv("CORS_ORIGINS", "").split(",") if os.getenv("CORS_ORIGINS") else ["*"]
         )
     )
 

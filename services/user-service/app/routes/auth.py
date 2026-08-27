@@ -1,27 +1,30 @@
 """Authentication routes for User Service."""
 
-import sys
 from pathlib import Path
+import sys
 
 # Add shared modules to path
 shared_path = Path(__file__).parent.parent.parent.parent.parent / "shared"
 sys.path.insert(0, str(shared_path))
 
-from fastapi import APIRouter, HTTPException, status
-from common.responses import ApiResponse
+from fastapi import APIRouter
 from pydantic import BaseModel, EmailStr
+
+from common.responses import ApiResponse
 
 router = APIRouter()
 
 
 class LoginRequest(BaseModel):
     """Login request model."""
+
     email: EmailStr
     password: str
 
 
 class RegisterRequest(BaseModel):
     """Registration request model."""
+
     email: EmailStr
     password: str
     first_name: str
@@ -35,7 +38,7 @@ async def login(request: LoginRequest):
     return ApiResponse(
         success=True,
         data={"token": "placeholder_token", "user_id": "123"},
-        message="Login successful (placeholder)"
+        message="Login successful (placeholder)",
     )
 
 
@@ -46,7 +49,7 @@ async def register(request: RegisterRequest):
     return ApiResponse(
         success=True,
         data={"user_id": "123", "email": request.email},
-        message="Registration successful (placeholder)"
+        message="Registration successful (placeholder)",
     )
 
 
@@ -54,7 +57,4 @@ async def register(request: RegisterRequest):
 async def logout():
     """User logout endpoint."""
     # TODO: Implement actual logout logic
-    return ApiResponse(
-        success=True,
-        message="Logout successful (placeholder)"
-    )
+    return ApiResponse(success=True, message="Logout successful (placeholder)")

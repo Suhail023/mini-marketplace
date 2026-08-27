@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class AppError(Exception):
@@ -6,7 +6,7 @@ class AppError(Exception):
         self,
         message: str,
         status_code: int = 400,
-        details: Optional[Dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
     ):
         super().__init__(message)
         self.message = message
@@ -15,7 +15,7 @@ class AppError(Exception):
 
 
 class ValidationError(AppError):
-    def __init__(self, message: str, field: Optional[str] = None):
+    def __init__(self, message: str, field: str | None = None):
         details = {"field": field} if field else {}
         super().__init__(message, 400, details)
 
@@ -27,6 +27,6 @@ class NotFoundError(AppError):
 
 
 class ConflictError(AppError):
-    def __init__(self, message: str, resource: Optional[str] = None):
+    def __init__(self, message: str, resource: str | None = None):
         details = {"resource": resource} if resource else {}
         super().__init__(message, 409, details)

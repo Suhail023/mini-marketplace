@@ -1,5 +1,5 @@
 """Routes package for User Service."""
 
-from . import health, auth, users
+from . import auth, health, users
 
 __all__ = ["health", "auth", "users"]
