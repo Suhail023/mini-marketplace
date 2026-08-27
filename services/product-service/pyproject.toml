@@ -1,0 +1,33 @@
+[tool.poetry]
+name = "product-service"
+version = "0.1.0"
+description = "Product catalog and inventory management microservice"
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.104.0"
+uvicorn = {extras = ["standard"], version = "^0.24.0"}
+pydantic = {extras = ["email"], version = "^2.5.0"}
+python-dotenv = "^1.0.0"
+# SQLAlchemy 2.0 style (mapped_column, Mapped, DeclarativeBase)
+sqlalchemy = "^2.0.0"
+alembic = "^1.12.0"
+# Sync driver (psycopg2 for Alembic + SQLAlchemy sync sessions)
+psycopg2-binary = "^2.9.9"
+# Async drivers
+asyncpg = "^0.29.0"
+aiosqlite = "^0.19.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-asyncio = "^0.21.0"
+pytest-cov = "^4.1.0"
+ruff = "^0.5.7"
+mypy = "^1.11.1"
+sqlalchemy-stubs = "^0.4"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
