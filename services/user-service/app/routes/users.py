@@ -1,34 +1,37 @@
 """User management routes."""
 
-import sys
 from pathlib import Path
+import sys
 
 # Add shared modules to path
 shared_path = Path(__file__).parent.parent.parent.parent.parent / "shared"
 sys.path.insert(0, str(shared_path))
 
-from fastapi import APIRouter, HTTPException, status
-from common.responses import ApiResponse
+
+from fastapi import APIRouter
 from pydantic import BaseModel
-from typing import Optional
+
+from common.responses import ApiResponse
 
 router = APIRouter()
 
 
 class UserProfile(BaseModel):
     """User profile model."""
+
     id: str
     email: str
     first_name: str
     last_name: str
-    phone: Optional[str] = None
+    phone: str | None = None
 
 
 class UpdateProfileRequest(BaseModel):
     """Update profile request."""
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    phone: Optional[str] = None
+
+    first_name: str | None = None
+    last_name: str | None = None
+    phone: str | None = None
 
 
 @router.get("/me", response_model=ApiResponse)
@@ -37,13 +40,8 @@ async def get_current_user():
     # TODO: Implement actual user retrieval
     return ApiResponse(
         success=True,
-        data={
-            "id": "123",
-            "email": "user@example.com",
-            "first_name": "John",
-            "last_name": "Doe"
-        },
-        message="User profile retrieved (placeholder)"
+        data={"id": "123", "email": "user@example.com", "first_name": "John", "last_name": "Doe"},
+        message="User profile retrieved (placeholder)",
     )
 
 
@@ -52,9 +50,7 @@ async def update_profile(request: UpdateProfileRequest):
     """Update user profile."""
     # TODO: Implement actual profile update
     return ApiResponse(
-        success=True,
-        data={"updated": True},
-        message="Profile updated (placeholder)"
+        success=True, data={"updated": True}, message="Profile updated (placeholder)"
     )
 
 
@@ -62,7 +58,4 @@ async def update_profile(request: UpdateProfileRequest):
 async def delete_account():
     """Delete user account."""
     # TODO: Implement actual account deletion
-    return ApiResponse(
-        success=True,
-        message="Account deleted (placeholder)"
-    )
+    return ApiResponse(success=True, message="Account deleted (placeholder)")

@@ -1,8 +1,8 @@
 """User Service - Handles authentication, user management, and profiles."""
 
-import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
+import sys
 
 # Add shared modules to path
 # __file__ is at: <repo>/services/user-service/app/main.py
@@ -12,11 +12,10 @@ sys.path.insert(0, str(shared_path))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from common.logging_config import setup_logger
-from common.responses import HealthResponse, ApiResponse
 
 from app.config import get_settings
-from app.routes import health, auth, users
+from app.routes import auth, health, users
+from common.logging_config import setup_logger
 
 logger = setup_logger(__name__)
 
@@ -69,5 +68,5 @@ if __name__ == "__main__":
         host=settings.HOST,
         port=settings.PORT,
         reload=settings.DEBUG,
-        log_level=settings.LOG_LEVEL.lower()
+        log_level=settings.LOG_LEVEL.lower(),
     )
