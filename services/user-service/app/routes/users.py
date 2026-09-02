@@ -1,61 +1,56 @@
 """User management routes."""
 
-from pathlib import Path
-import sys
+from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
-# Add shared modules to path
-shared_path = Path(__file__).parent.parent.parent.parent.parent / "shared"
-sys.path.insert(0, str(shared_path))
-
-
-from fastapi import APIRouter
-from pydantic import BaseModel
-
-from common.responses import ApiResponse
+from app.contracts.auth import UpdateProfileRequest, UserResponse
+from app.database import get_db
+from app.dependencies import get_current_user
+from app.models.user import User
 
 router = APIRouter()
 
 
-class UserProfile(BaseModel):
-    """User profile model."""
-
-    id: str
-    email: str
-    first_name: str
-    last_name: str
-    phone: str | None = None
-
-
-class UpdateProfileRequest(BaseModel):
-    """Update profile request."""
-
-    first_name: str | None = None
-    last_name: str | None = None
-    phone: str | None = None
-
-
-@router.get("/me", response_model=ApiResponse)
-async def get_current_user():
-    """Get current user profile."""
-    # TODO: Implement actual user retrieval
-    return ApiResponse(
-        success=True,
-        data={"id": "123", "email": "user@example.com", "first_name": "John", "last_name": "Doe"},
-        message="User profile retrieved (placeholder)",
+@router.get("/me", response_model=UserResponse)
+async def get_current_user_profile(current_user: User = Depends(get_current_user)):
+    return UserResponse(
+        id=current_user.id,
+        email=current_user.email,
+        first_name=current_user.first_name,
+        last_name=current_user.last_name,
+        is_active=current_user.is_active,
+        is_verified=current_user.is_verified,
     )
 
 
-@router.put("/me", response_model=ApiResponse)
-async def update_profile(request: UpdateProfileRequest):
-    """Update user profile."""
-    # TODO: Implement actual profile update
-    return ApiResponse(
-        success=True, data={"updated": True}, message="Profile updated (placeholder)"
+@router.put("/me", response_model=UserResponse)
+async def update_profile(
+    request: UpdateProfileRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if request.first_name is not None:
+        current_user.first_name = request.first_name
+    if request.last_name is not None:
+        current_user.last_name = request.last_name
+
+    await db.commit()
+    await db.refresh(current_user)
+
+    return UserResponse(
+        id=current_user.id,
+        email=current_user.email,
+        first_name=current_user.first_name,
+        last_name=current_user.last_name,
+        is_active=current_user.is_active,
+        is_verified=current_user.is_verified,
     )
 
 
-@router.delete("/me", response_model=ApiResponse)
-async def delete_account():
-    """Delete user account."""
-    # TODO: Implement actual account deletion
-    return ApiResponse(success=True, message="Account deleted (placeholder)")
+@router.delete("/me", status_code=204)
+async def delete_account(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    current_user.is_active = False
+    await db.commit()

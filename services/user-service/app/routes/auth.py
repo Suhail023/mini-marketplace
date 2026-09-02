@@ -1,60 +1,72 @@
 """Authentication routes for User Service."""
 
-from pathlib import Path
-import sys
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-# Add shared modules to path
-shared_path = Path(__file__).parent.parent.parent.parent.parent / "shared"
-sys.path.insert(0, str(shared_path))
-
-from fastapi import APIRouter
-from pydantic import BaseModel, EmailStr
-
-from common.responses import ApiResponse
+from app.config import get_settings
+from app.contracts.auth import LoginRequest, RegisterRequest, TokenResponse
+from app.database import get_db
+from app.models.user import User
+from app.utils.jwt import create_access_token
+from app.utils.password import hash_password, verify_password
 
 router = APIRouter()
+settings = get_settings()
 
 
-class LoginRequest(BaseModel):
-    """Login request model."""
+@router.post("/login", response_model=TokenResponse)
+async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.email == request.email))
+    user = result.scalar_one_or_none()
 
-    email: EmailStr
-    password: str
+    if user is None or not verify_password(request.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+        )
 
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User account is disabled",
+        )
 
-class RegisterRequest(BaseModel):
-    """Registration request model."""
-
-    email: EmailStr
-    password: str
-    first_name: str
-    last_name: str
-
-
-@router.post("/login", response_model=ApiResponse)
-async def login(request: LoginRequest):
-    """User login endpoint."""
-    # TODO: Implement actual authentication logic
-    return ApiResponse(
-        success=True,
-        data={"token": "placeholder_token", "user_id": "123"},
-        message="Login successful (placeholder)",
+    access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    return TokenResponse(
+        access_token=access_token,
+        user_id=user.id,
+        email=user.email,
     )
 
 
-@router.post("/register", response_model=ApiResponse)
-async def register(request: RegisterRequest):
-    """User registration endpoint."""
-    # TODO: Implement actual registration logic
-    return ApiResponse(
-        success=True,
-        data={"user_id": "123", "email": request.email},
-        message="Registration successful (placeholder)",
+@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    existing = await db.execute(select(User).where(User.email == request.email))
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A user with this email already exists",
+        )
+
+    user = User(
+        email=request.email,
+        hashed_password=hash_password(request.password),
+        first_name=request.first_name,
+        last_name=request.last_name,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+
+    access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    return TokenResponse(
+        access_token=access_token,
+        user_id=user.id,
+        email=user.email,
     )
 
 
-@router.post("/logout", response_model=ApiResponse)
+@router.post("/logout")
 async def logout():
-    """User logout endpoint."""
-    # TODO: Implement actual logout logic
-    return ApiResponse(success=True, message="Logout successful (placeholder)")
+    return {"message": "Logged out successfully"}

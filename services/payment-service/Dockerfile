@@ -10,17 +10,17 @@ RUN apt-get update && apt-get install -y \
 
 RUN pip install poetry==1.7.0
 
-COPY services/user-service/pyproject.toml ./
+COPY services/payment-service/pyproject.toml ./
 
 RUN poetry config virtualenvs.create false \
-    && poetry install --no-interaction --no-ansi --no-root
+    && poetry install --no-interaction --no-ansi --no-root --without dev
 
-COPY services/user-service/app/ ./app/
+COPY services/payment-service/app/ ./app/
 COPY shared/ ./shared/
 
-EXPOSE 8001
+EXPOSE 8004
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8001/health || exit 1
+    CMD curl -f http://localhost:8004/health || exit 1
 
-CMD ["python", "-m", "app.main"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8004"]
