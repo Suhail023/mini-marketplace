@@ -158,5 +158,3 @@ This is a learning project for microservices architecture patterns. Each phase b
 ## 📄 License
 
 MIT License - This is a demonstration project for learning purposes.
-
-
