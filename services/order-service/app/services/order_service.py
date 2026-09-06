@@ -1,7 +1,5 @@
 """Order service - orchestrates Product and Payment services."""
 
-import uuid
-
 from app.clients import charge_payment, check_and_reserve_stock, get_product
 from app.contracts.order import CreateOrderRequest, OrderResponse
 from app.repositories.order_repository import OrderRepository
@@ -15,9 +13,7 @@ class OrderService:
         self.order_repository = order_repository
 
     async def create_order(self, request: CreateOrderRequest) -> OrderResponse:
-        existing = await self.order_repository.get_by_idempotency_key(
-            request.idempotency_key
-        )
+        existing = await self.order_repository.get_by_idempotency_key(request.idempotency_key)
         if existing:
             logger.info(f"Returning existing order for idempotency key: {request.idempotency_key}")
             return OrderResponse(
@@ -36,20 +32,17 @@ class OrderService:
         product_data = await get_product(request.product_id)
         product = product_data.get("error", {}).get("data") or product_data
         # product-service returns { error: { data: {...} } } or flat
-        if "error" in product_data and product_data["error"]:
+        if product_data.get("error"):
             raise Exception(f"Product not found: {request.product_id}")
 
         # Extract price from the response - product-service wraps in {error: {data: ...}}
         if "data" in product_data:
             price = product_data["data"]["price"]
-            product_name = product_data["data"]["name"]
         elif "price" in product_data:
             price = product_data["price"]
-            product_name = product_data["name"]
         else:
             # Try the nested error.data pattern (product-service contract format)
             price = product.get("price", 0)
-            product_name = product.get("name", "unknown")
 
         total_amount = price * request.quantity
 
@@ -120,7 +113,9 @@ class OrderService:
             created_at=order.created_at,
         )
 
-    async def list_orders(self, user_id: str, skip: int = 0, limit: int = 20) -> list[OrderResponse]:
+    async def list_orders(
+        self, user_id: str, skip: int = 0, limit: int = 20
+    ) -> list[OrderResponse]:
         orders = await self.order_repository.list_by_user(user_id, skip=skip, limit=limit)
         return [
             OrderResponse(

@@ -30,7 +30,5 @@ class PaymentRepository:
         return await self.db.get(Payment, payment_id)
 
     async def get_by_order_id(self, order_id: str) -> list[Payment]:
-        result = await self.db.execute(
-            select(Payment).where(Payment.order_id == order_id)
-        )
+        result = await self.db.execute(select(Payment).where(Payment.order_id == order_id))
         return list(result.scalars().all())

@@ -14,9 +14,7 @@ class PaymentService:
         self.payment_repository = payment_repository
 
     async def charge(self, request: ChargeRequest) -> PaymentResponse:
-        existing = await self.payment_repository.get_by_idempotency_key(
-            request.idempotency_key
-        )
+        existing = await self.payment_repository.get_by_idempotency_key(request.idempotency_key)
         if existing:
             logger.info(
                 f"Returning existing payment for idempotency key: {request.idempotency_key}"
@@ -32,8 +30,8 @@ class PaymentService:
                 created_at=existing.created_at,
             )
 
-        # Mock payment processing - 90% success rate
-        status = "succeeded" if random.random() < 0.9 else "failed"
+        # Mock payment processing - 90% success rate (non-cryptographic, intentional mock)
+        status = "succeeded" if random.random() < 0.9 else "failed"  # noqa: S311
 
         payment_data = {
             "idempotency_key": request.idempotency_key,

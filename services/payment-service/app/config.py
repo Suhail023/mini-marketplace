@@ -1,7 +1,7 @@
 """Payment Service configuration."""
 
-import os
 from dataclasses import dataclass, field
+import os
 
 
 @dataclass
@@ -18,8 +18,7 @@ class DatabaseConfig:
         if self.DATABASE_URL:
             return self.DATABASE_URL
         return (
-            f"postgresql+asyncpg://{self.USER}:{self.PASSWORD}"
-            f"@{self.HOST}:{self.PORT}/{self.NAME}"
+            f"postgresql+asyncpg://{self.USER}:{self.PASSWORD}@{self.HOST}:{self.PORT}/{self.NAME}"
         )
 
 

@@ -29,7 +29,9 @@ class OrderRepository:
         )
         return result.scalar_one_or_none()
 
-    async def update_status(self, order_id: str, status: str, payment_id: str | None = None) -> Order | None:
+    async def update_status(
+        self, order_id: str, status: str, payment_id: str | None = None
+    ) -> Order | None:
         order = await self.db.get(Order, order_id)
         if not order:
             return None
