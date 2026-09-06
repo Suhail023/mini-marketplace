@@ -1,7 +1,7 @@
 """Order SQLAlchemy model."""
 
-import uuid
 from decimal import Decimal
+import uuid
 
 from sqlalchemy import DateTime, Numeric, String, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
