@@ -45,7 +45,7 @@ def _extract_price(product_data: dict, product_id: str) -> float:
             f"Got keys: {list(product_data.keys())}"
         )
 
-    if not isinstance(price, (int, float)) or price <= 0:
+    if not isinstance(price, int | float) or price <= 0:
         raise ValueError(
             f"Product '{product_id}' has an invalid price: {price!r}. Price must be > 0."
         )
