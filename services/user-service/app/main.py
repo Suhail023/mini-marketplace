@@ -4,9 +4,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 import sys
 
-# Add shared modules to path
-# __file__ is at: <repo>/services/user-service/app/main.py
-# shared is at:   <repo>/shared/
 shared_path = Path(__file__).parent.parent.parent.parent / "shared"
 sys.path.insert(0, str(shared_path))
 
@@ -14,28 +11,27 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
+from app.database import close_db, init_db
+from app.models import Base
 from app.routes import auth, health, users
 from common.logging_config import setup_logger
 
 logger = setup_logger(__name__)
-
-# Get configuration
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Manage application startup and shutdown."""
-    # Startup
     logger.info(f"Starting {settings.SERVICE_NAME} v{settings.SERVICE_VERSION}")
-    logger.info(f"Environment: {settings.ENVIRONMENT}")
-    logger.info(f"Running on {settings.HOST}:{settings.PORT}")
+    db_engine = init_db()
+    async with db_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    logger.info("Database tables ensured")
     yield
-    # Shutdown
+    await close_db()
     logger.info(f"Shutting down {settings.SERVICE_NAME}")
 
 
-# Create FastAPI application
 app = FastAPI(
     title=settings.SERVICE_NAME,
     description="User management, authentication, and profile service",
@@ -45,7 +41,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -54,7 +49,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register routes
 app.include_router(health.router, tags=["health"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["authentication"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["users"])

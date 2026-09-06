@@ -25,13 +25,12 @@ class DatabaseConfig:
         if self.DATABASE_URL:
             return self.DATABASE_URL
         return (
-            f"postgresql+asyncpg://{self.USER}:{self.PASSWORD}"
-            f"@{self.HOST}:{self.PORT}/{self.NAME}"
+            f"postgresql+asyncpg://{self.USER}:{self.PASSWORD}@{self.HOST}:{self.PORT}/{self.NAME}"
         )
 
     @property
     def sync_url(self) -> str:
-        return f"postgresql://{self.USER}:{self.PASSWORD}" f"@{self.HOST}:{self.PORT}/{self.NAME}"
+        return f"postgresql://{self.USER}:{self.PASSWORD}@{self.HOST}:{self.PORT}/{self.NAME}"
 
 
 @dataclass

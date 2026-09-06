@@ -9,9 +9,9 @@ from app.contracts.product import (
 
 __all__ = [
     "ProductCreateContract",
-    "ProductUpdateContract",
+    "ProductListResponse",
     "ProductResponse",
+    "ProductUpdateContract",
     "StockDecrementRequest",
     "StockResponse",
-    "ProductListResponse",
 ]

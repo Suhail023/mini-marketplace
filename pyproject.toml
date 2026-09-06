@@ -28,14 +28,13 @@ select = [
     "RUF",  # Ruff-specific rules
 ]
 ignore = [
-    "ANN101",  # Missing type annotation for `self`
-    "ANN102",  # Missing type annotation for `cls`
     "ANN201",  # Missing return type annotation for public function
     "ANN202",  # Missing return type annotation for private function
     "ANN204",  # Missing return type annotation for special method
     "ANN401",  # Dynamically typed expressions (Any) are disallowed
     "S101",    # Use of `assert` detected (fine in tests)
     "S104",    # Possible binding to all interfaces
+    "S105",    # Possible hardcoded password (false positive on token_type = "bearer")
     "B008",    # Do not perform function calls in default arguments (FastAPI uses Depends)
     "B904",    # raise ... from err (can be noisy in service code)
     "RUF009",  # Do not perform function call in dataclass defaults
