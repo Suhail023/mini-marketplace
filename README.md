@@ -159,8 +159,4 @@ This is a learning project for microservices architecture patterns. Each phase b
 
 MIT License - This is a demonstration project for learning purposes.
 
----
 
-**Status**: 🚀 Active Development - User Service complete, building remaining services
-
-For detailed development plan, see [docs/DEVELOPMENT_PLAN.md](./docs/DEVELOPMENT_PLAN.md)
