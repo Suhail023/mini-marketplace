@@ -1,8 +1,9 @@
 """Order SQLAlchemy model."""
 
 import uuid
+from decimal import Decimal
 
-from sqlalchemy import DateTime, Float, String, func
+from sqlalchemy import DateTime, Numeric, String, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -17,7 +18,7 @@ class Order(Base):
     user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     product_id: Mapped[str] = mapped_column(String(36), nullable=False)
     quantity: Mapped[int] = mapped_column(nullable=False)
-    total_amount: Mapped[float] = mapped_column(Float, nullable=False)
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="pending"
     )  # pending, confirmed, failed

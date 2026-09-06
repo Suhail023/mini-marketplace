@@ -1,11 +1,56 @@
 """Order service - orchestrates Product and Payment services."""
 
-from app.clients import charge_payment, check_and_reserve_stock, get_product
+from app.clients import (
+    charge_payment,
+    check_and_reserve_stock,
+    get_product,
+    release_stock,
+)
 from app.contracts.order import CreateOrderRequest, OrderResponse
 from app.repositories.order_repository import OrderRepository
 from app.utils.logging import setup_logger
 
 logger = setup_logger(__name__)
+
+
+async def _rollback_stock(product_id: str, quantity: int, order_id: str) -> None:
+    """Compensating action: restore stock that was decremented for a failed order."""
+    try:
+        await release_stock(product_id, quantity)
+        logger.info(f"Stock rolled back for order {order_id}: +{quantity} units of {product_id}")
+    except Exception as rollback_err:
+        # Log and continue — the order is already marked failed.
+        # An ops alert or dead-letter queue would handle inventory reconciliation.
+        logger.error(
+            f"STOCK ROLLBACK FAILED for order {order_id} "
+            f"(product={product_id}, qty={quantity}): {rollback_err}. "
+            "Manual inventory reconciliation required."
+        )
+
+
+def _extract_price(product_data: dict, product_id: str) -> float:
+    """Extract price from product-service response.
+
+    The product-service returns a flat dict: {"id": ..., "price": ..., ...}.
+    Raises ValueError if the price field is missing or not positive.
+    """
+    if "price" in product_data:
+        price = product_data["price"]
+    elif "data" in product_data and "price" in product_data["data"]:
+        # Handle any future wrapper shape: {"data": {"price": ...}}
+        price = product_data["data"]["price"]
+    else:
+        raise ValueError(
+            f"Product service response for '{product_id}' is missing a 'price' field. "
+            f"Got keys: {list(product_data.keys())}"
+        )
+
+    if not isinstance(price, (int, float)) or price <= 0:
+        raise ValueError(
+            f"Product '{product_id}' has an invalid price: {price!r}. Price must be > 0."
+        )
+
+    return float(price)
 
 
 class OrderService:
@@ -28,22 +73,9 @@ class OrderService:
                 created_at=existing.created_at,
             )
 
-        # Step 1: Get product to calculate total
+        # Step 1: Get product and calculate total — raises on missing/invalid price
         product_data = await get_product(request.product_id)
-        product = product_data.get("error", {}).get("data") or product_data
-        # product-service returns { error: { data: {...} } } or flat
-        if product_data.get("error"):
-            raise Exception(f"Product not found: {request.product_id}")
-
-        # Extract price from the response - product-service wraps in {error: {data: ...}}
-        if "data" in product_data:
-            price = product_data["data"]["price"]
-        elif "price" in product_data:
-            price = product_data["price"]
-        else:
-            # Try the nested error.data pattern (product-service contract format)
-            price = product.get("price", 0)
-
+        price = _extract_price(product_data, request.product_id)
         total_amount = price * request.quantity
 
         # Step 2: Create pending order
@@ -58,9 +90,11 @@ class OrderService:
         order = await self.order_repository.create(order_data)
         logger.info(f"Created pending order {order.id}")
 
+        stock_reserved = False
         try:
             # Step 3: Reserve stock
             await check_and_reserve_stock(request.product_id, request.quantity)
+            stock_reserved = True
             logger.info(f"Stock reserved for order {order.id}")
 
             # Step 4: Charge payment
@@ -77,11 +111,18 @@ class OrderService:
                 )
                 logger.info(f"Order {order.id} confirmed with payment {payment_result.get('id')}")
             else:
+                # Payment failed — roll back reserved stock
+                logger.warning(
+                    f"Order {order.id} failed: payment status={payment_result.get('status')}. "
+                    "Rolling back reserved stock."
+                )
+                await _rollback_stock(request.product_id, request.quantity, order.id)
                 order = await self.order_repository.update_status(order.id, "failed")
-                logger.warning(f"Order {order.id} failed: payment not successful")
 
         except Exception as e:
-            logger.error(f"Order {order.id} failed: {e}")
+            logger.error(f"Order {order.id} failed with exception: {e}")
+            if stock_reserved:
+                await _rollback_stock(request.product_id, request.quantity, order.id)
             order = await self.order_repository.update_status(order.id, "failed")
             raise
 

@@ -1,6 +1,7 @@
 """Order contracts."""
 
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
@@ -18,7 +19,7 @@ class OrderResponse(BaseModel):
     user_id: str
     product_id: str
     quantity: int
-    total_amount: float
+    total_amount: Decimal
     status: str
     payment_id: str | None = None
     idempotency_key: str

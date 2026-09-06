@@ -1,8 +1,9 @@
 """Payment SQLAlchemy model with idempotency support."""
 
 import uuid
+from decimal import Decimal
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import DateTime, Numeric, String, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -18,7 +19,7 @@ class Payment(Base):
         String(255), nullable=False, unique=True, index=True
     )
     order_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
-    amount: Mapped[float] = mapped_column(nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="pending"
