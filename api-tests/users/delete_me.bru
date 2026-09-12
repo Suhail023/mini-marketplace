@@ -1,0 +1,13 @@
+meta {
+  name: Delete Me
+  seq: 6
+}
+
+delete {
+  url: {{baseUrl}}/users/me
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}

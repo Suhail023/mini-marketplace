@@ -1,0 +1,15 @@
+meta {
+  name: Update Product
+  seq: 10
+}
+
+patch {
+  url: {{baseUrl}}/products/{{productId}}
+  body: json
+  auth: none
+}
+
+json {
+  "price": 899.99,
+  "stock": 45
+}
