@@ -1,0 +1,19 @@
+meta {
+  name: Update Me
+  seq: 5
+}
+
+put {
+  url: {{baseUrl}}/users/me
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}
+
+json {
+  "first_name": "Updated",
+  "last_name": "Name"
+}

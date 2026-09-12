@@ -1,0 +1,13 @@
+meta {
+  name: Get Me
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/users/me
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}

@@ -18,6 +18,8 @@ RUN poetry config virtualenvs.create false \
 COPY services/product-service/app/ ./app/
 COPY shared/ ./shared/
 
+ENV PYTHONPATH="/app/shared"
+
 EXPOSE 8002
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \

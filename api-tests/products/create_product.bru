@@ -1,0 +1,22 @@
+meta {
+  name: Create Product
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/products/
+  body: json
+  auth: none
+}
+
+json {
+  "name": "Laptop",
+  "description": "High-performance laptop",
+  "price": 999.99,
+  "stock": 50,
+  "sku": "LAPTOP-001"
+}
+
+script {
+  res: util_variable.set("productId", res.body.id)
+}

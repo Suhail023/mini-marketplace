@@ -1,0 +1,22 @@
+meta {
+  name: Create Order
+  seq: 14
+}
+
+post {
+  url: {{baseUrl}}/orders/
+  body: json
+  auth: none
+}
+
+json {
+  "user_id": "{{userId}}",
+  "product_id": "{{productId}}",
+  "quantity": 2,
+  "idempotency_key": "order-test-001",
+  "card_last_four": "4242"
+}
+
+script {
+  res: util_variable.set("orderId", res.body.id)
+}

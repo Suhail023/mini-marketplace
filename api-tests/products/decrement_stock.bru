@@ -1,0 +1,14 @@
+meta {
+  name: Decrement Stock
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/products/{{productId}}/stock/decrement
+  body: json
+  auth: none
+}
+
+json {
+  "quantity": 2
+}

@@ -1,0 +1,22 @@
+meta {
+  name: Charge Payment
+  seq: 17
+}
+
+post {
+  url: {{baseUrl}}/payments/charge
+  body: json
+  auth: none
+}
+
+json {
+  "order_id": "{{orderId}}",
+  "amount": 1999.98,
+  "currency": "USD",
+  "idempotency_key": "payment-test-001",
+  "card_last_four": "4242"
+}
+
+script {
+  res: util_variable.set("paymentId", res.body.id)
+}
