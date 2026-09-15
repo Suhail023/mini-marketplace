@@ -36,6 +36,10 @@ class BaseServiceConfig(BaseSettings):
     RABBITMQ_PASSWORD: str = "guest"
     RABBITMQ_VHOST: str = "/"
 
+    # RabbitMQ exchange/queue
+    RABBITMQ_EXCHANGE: str = "marketplace.events"
+    RABBITMQ_QUEUE: str = "notification.order.created"
+
     # Security
     SECRET_KEY: str = "change-me-in-production"
     JWT_SECRET_KEY: str = "change-me-in-production"

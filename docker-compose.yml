@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_MULTIPLE_DATABASES: userdb,productdb,orderdb,paymentdb
+      POSTGRES_MULTIPLE_DATABASES: userdb,productdb,orderdb,paymentdb,notificationdb
     ports:
       - "5433:5432"
     volumes:
@@ -123,6 +123,11 @@ services:
       - PRODUCT_SERVICE_URL=http://product-service:8002
       - PAYMENT_SERVICE_URL=http://payment-service:8004
       - HTTP_TIMEOUT=10.0
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASSWORD=guest
+      - RABBITMQ_VHOST=/
       - LOG_LEVEL=INFO
       - ENVIRONMENT=development
     depends_on:
@@ -131,6 +136,8 @@ services:
       product-service:
         condition: service_healthy
       payment-service:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
@@ -166,6 +173,38 @@ services:
       - marketplace-network
     restart: unless-stopped
 
+  notification-service:
+    build:
+      context: .
+      dockerfile: services/notification-service/Dockerfile
+    container_name: notification-service
+    ports:
+      - "8005:8005"
+    environment:
+      - SERVICE_NAME=notification-service
+      - PORT=8005
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/notificationdb
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASSWORD=guest
+      - RABBITMQ_VHOST=/
+      - LOG_LEVEL=INFO
+      - ENVIRONMENT=development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - marketplace-network
+    restart: unless-stopped
+
   # API Gateway
   api-gateway:
     image: nginx:1.25-alpine
@@ -182,6 +221,8 @@ services:
       order-service:
         condition: service_healthy
       payment-service:
+        condition: service_healthy
+      notification-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost/health"]

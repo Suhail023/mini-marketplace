@@ -2,7 +2,7 @@
 set -e
 
 # Create multiple databases for different microservices
-databases=("userdb" "productdb" "orderdb" "paymentdb")
+databases=("userdb" "productdb" "orderdb" "paymentdb" "notificationdb")
 
 for db in "${databases[@]}"; do
   echo "Creating database: $db"

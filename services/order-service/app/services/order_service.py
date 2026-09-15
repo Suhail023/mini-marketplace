@@ -1,5 +1,7 @@
 """Order service - orchestrates Product and Payment services."""
 
+import uuid
+
 from app.clients import (
     charge_payment,
     check_and_reserve_stock,
@@ -9,8 +11,11 @@ from app.clients import (
 from app.contracts.order import CreateOrderRequest, OrderResponse
 from app.repositories.order_repository import OrderRepository
 from app.utils.logging import setup_logger
+from shared.events.order import OrderCreatedEvent
 
 logger = setup_logger(__name__)
+
+ORDER_EVENTS_ROUTING_KEY = "order.created"
 
 
 async def _rollback_stock(product_id: str, quantity: int, order_id: str) -> None:
@@ -19,8 +24,6 @@ async def _rollback_stock(product_id: str, quantity: int, order_id: str) -> None
         await release_stock(product_id, quantity)
         logger.info(f"Stock rolled back for order {order_id}: +{quantity} units of {product_id}")
     except Exception as rollback_err:
-        # Log and continue — the order is already marked failed.
-        # An ops alert or dead-letter queue would handle inventory reconciliation.
         logger.error(
             f"STOCK ROLLBACK FAILED for order {order_id} "
             f"(product={product_id}, qty={quantity}): {rollback_err}. "
@@ -37,7 +40,6 @@ def _extract_price(product_data: dict, product_id: str) -> float:
     if "price" in product_data:
         price = product_data["price"]
     elif "data" in product_data and "price" in product_data["data"]:
-        # Handle any future wrapper shape: {"data": {"price": ...}}
         price = product_data["data"]["price"]
     else:
         raise ValueError(
@@ -51,6 +53,22 @@ def _extract_price(product_data: dict, product_id: str) -> float:
         )
 
     return float(price)
+
+
+def _build_event_payload(order, status: str) -> dict:  # noqa: ANN001
+    """Build the OrderCreated event payload from an order ORM object."""
+    event = OrderCreatedEvent(
+        event_id=str(uuid.uuid4()),
+        order_id=order.id,
+        user_id=order.user_id,
+        product_id=order.product_id,
+        quantity=order.quantity,
+        total_amount=order.total_amount,
+        status=status,
+        payment_id=order.payment_id,
+        idempotency_key=order.idempotency_key,
+    )
+    return event.model_dump(mode="json")
 
 
 class OrderService:
@@ -106,24 +124,39 @@ class OrderService:
             )
 
             if payment_result.get("status") == "succeeded":
-                order = await self.order_repository.update_status(
-                    order.id, "confirmed", payment_result.get("id")
+                order = await self.order_repository.update_status_with_outbox(
+                    order.id,
+                    "confirmed",
+                    payment_result.get("id"),
+                    _build_event_payload(order, "confirmed"),
+                    ORDER_EVENTS_ROUTING_KEY,
                 )
                 logger.info(f"Order {order.id} confirmed with payment {payment_result.get('id')}")
             else:
-                # Payment failed — roll back reserved stock
                 logger.warning(
                     f"Order {order.id} failed: payment status={payment_result.get('status')}. "
                     "Rolling back reserved stock."
                 )
                 await _rollback_stock(request.product_id, request.quantity, order.id)
-                order = await self.order_repository.update_status(order.id, "failed")
+                order = await self.order_repository.update_status_with_outbox(
+                    order.id,
+                    "failed",
+                    None,
+                    _build_event_payload(order, "failed"),
+                    ORDER_EVENTS_ROUTING_KEY,
+                )
 
         except Exception as e:
             logger.error(f"Order {order.id} failed with exception: {e}")
             if stock_reserved:
                 await _rollback_stock(request.product_id, request.quantity, order.id)
-            order = await self.order_repository.update_status(order.id, "failed")
+            order = await self.order_repository.update_status_with_outbox(
+                order.id,
+                "failed",
+                None,
+                _build_event_payload(order, "failed"),
+                ORDER_EVENTS_ROUTING_KEY,
+            )
             raise
 
         return OrderResponse(
