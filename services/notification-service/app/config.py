@@ -1,4 +1,4 @@
-"""Order Service configuration."""
+"""Notification Service configuration."""
 
 from dataclasses import dataclass, field
 import os
@@ -11,7 +11,7 @@ class DatabaseConfig:
     PORT: int = int(os.getenv("DATABASE_PORT", "5432"))
     USER: str = os.getenv("DATABASE_USER", "postgres")
     PASSWORD: str = os.getenv("DATABASE_PASSWORD", "postgres")
-    NAME: str = os.getenv("DATABASE_NAME", "orderdb")
+    NAME: str = os.getenv("DATABASE_NAME", "notificationdb")
 
     @property
     def url(self) -> str:
@@ -25,17 +25,10 @@ class DatabaseConfig:
 @dataclass
 class Config:
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
-    SERVICE_NAME: str = os.getenv("SERVICE_NAME", "order-service")
+    SERVICE_NAME: str = os.getenv("SERVICE_NAME", "notification-service")
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
     DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
-    PORT: int = int(os.getenv("PORT", "8003"))
-
-    # Service URLs (use Docker service names)
-    PRODUCT_SERVICE_URL: str = os.getenv("PRODUCT_SERVICE_URL", "http://product-service:8002")
-    PAYMENT_SERVICE_URL: str = os.getenv("PAYMENT_SERVICE_URL", "http://payment-service:8004")
-
-    # HTTP client timeouts
-    HTTP_TIMEOUT: float = float(os.getenv("HTTP_TIMEOUT", "10.0"))
+    PORT: int = int(os.getenv("PORT", "8005"))
 
     # RabbitMQ
     RABBITMQ_HOST: str = os.getenv("RABBITMQ_HOST", "localhost")

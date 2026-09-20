@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "order-service"
+name = "notification-service"
 version = "0.1.0"
-description = "Order orchestration microservice"
+description = "Consumes order events from RabbitMQ and manages notifications"
 authors = ["Your Name <you@example.com>"]
 readme = "README.md"
 
@@ -15,8 +15,6 @@ sqlalchemy = "^2.0.0"
 alembic = "^1.12.0"
 psycopg2-binary = "^2.9.9"
 asyncpg = "^0.29.0"
-httpx = "^0.25.0"
-tenacity = "^8.2.0"
 aio-pika = "^9.4.0"
 
 [tool.poetry.group.dev.dependencies]

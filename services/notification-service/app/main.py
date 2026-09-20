@@ -1,4 +1,4 @@
-"""Order Service - Orchestrates Product and Payment services."""
+"""Notification Service - Consumes order events and manages notifications."""
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -7,16 +7,16 @@ from datetime import datetime
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import text
 
 from app.config import get_settings
+from app.consumer import run_consumer
 from app.database import async_session_factory, close_db, init_db
 from app.models import Base
-from app.publisher import run_outbox_publisher
-from app.routers import orders
+from app.routers import notifications
 from app.utils.logging import setup_logger
 from common.middleware import CorrelationIDMiddleware
 from common.responses import HealthResponse
+from sqlalchemy import text
 
 logger = setup_logger(__name__)
 settings = get_settings()
@@ -28,24 +28,24 @@ def create_app() -> FastAPI:
         db_engine = init_db()
         async with db_engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("Order Service database tables ensured")
+        logger.info("Notification Service database tables ensured")
 
-        publisher_task = asyncio.create_task(run_outbox_publisher())
-        logger.info("Outbox publisher background task started")
+        consumer_task = asyncio.create_task(run_consumer())
+        logger.info("RabbitMQ consumer background task started")
 
         yield
 
-        publisher_task.cancel()
+        consumer_task.cancel()
         try:
-            await publisher_task
+            await consumer_task
         except asyncio.CancelledError:
             pass
         await close_db()
-        logger.info("Order Service shut down")
+        logger.info("Notification Service shut down")
 
     app = FastAPI(
-        title="Order Service",
-        description="Order orchestration - calls Product and Payment services",
+        title="Notification Service",
+        description="Consumes order events and manages user notifications",
         version="0.1.0",
         lifespan=lifespan,
     )
@@ -59,7 +59,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    app.include_router(orders.router)
+    app.include_router(notifications.router)
 
     @app.get("/health")
     async def health_check():
@@ -104,4 +104,4 @@ app = create_app()
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8003)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8005)
