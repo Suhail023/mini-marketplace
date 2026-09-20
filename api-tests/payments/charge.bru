@@ -18,5 +18,5 @@ json {
 }
 
 script {
-  bru.setVar("paymentId", res.body.id)
+  res: util_variable.set("paymentId", res.body.id)
 }

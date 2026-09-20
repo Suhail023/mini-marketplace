@@ -18,5 +18,5 @@ json {
 }
 
 script {
-  bru.setVar("productId", res.body.id)
+  res: util_variable.set("productId", res.body.id)
 }
