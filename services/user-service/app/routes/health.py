@@ -3,6 +3,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.config import get_settings
@@ -17,10 +18,9 @@ settings = get_settings()
 
 @router.get(
     "/health",
-    response_model=HealthResponse,
     status_code=status.HTTP_200_OK,
 )
-async def health_check() -> HealthResponse:
+async def health_check():
     checks = {}
     overall_status = "healthy"
 
@@ -36,13 +36,15 @@ async def health_check() -> HealthResponse:
         checks["database"] = {"status": "unhealthy", "message": str(e)}
         overall_status = "unhealthy"
 
-    return HealthResponse(
+    health = HealthResponse(
         status=overall_status,
         service=settings.SERVICE_NAME,
         version=settings.SERVICE_VERSION,
         timestamp=datetime.utcnow(),
         checks=checks,
     )
+    status_code = 200 if overall_status == "healthy" else 503
+    return JSONResponse(content=health.model_dump(mode="json"), status_code=status_code)
 
 
 @router.get("/health/liveness", status_code=status.HTTP_200_OK)
