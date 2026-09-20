@@ -17,6 +17,6 @@ json {
 }
 
 script {
-  res: util_variable.set("accessToken", res.body.access_token)
-  res: util_variable.set("userId", res.body.user_id)
+  bru.setVar("accessToken", res.body.access_token)
+  bru.setVar("userId", res.body.user_id)
 }
