@@ -7,6 +7,7 @@ from datetime import datetime
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from app.config import get_settings
 from app.consumer import run_consumer
@@ -16,7 +17,6 @@ from app.routers import notifications
 from app.utils.logging import setup_logger
 from common.middleware import CorrelationIDMiddleware
 from common.responses import HealthResponse
-from sqlalchemy import text
 
 logger = setup_logger(__name__)
 settings = get_settings()
