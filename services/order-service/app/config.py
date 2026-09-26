@@ -36,6 +36,9 @@ class Config:
 
     # HTTP client timeouts
     HTTP_TIMEOUT: float = float(os.getenv("HTTP_TIMEOUT", "10.0"))
+    # Per-attempt timeout for payment calls. Worst case with retries is
+    # 3 * 5s + 1s + 2s backoff = 18s, which stays under the gateway's 30s read timeout.
+    PAYMENT_HTTP_TIMEOUT: float = float(os.getenv("PAYMENT_HTTP_TIMEOUT", "5.0"))
 
     # RabbitMQ
     RABBITMQ_HOST: str = os.getenv("RABBITMQ_HOST", "localhost")

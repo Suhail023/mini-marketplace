@@ -1,16 +1,3 @@
-"""Logger setup."""
+"""Logger setup - delegates to shared structured JSON logging."""
 
-import logging
-
-
-def setup_logger(name: str) -> logging.Logger:
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
-
-    if not logger.handlers:
-        handler = logging.StreamHandler()
-        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-
-    return logger
+from common.logging_config import setup_logger  # noqa: F401
