@@ -1,21 +1,20 @@
 """Product Service - CRUD + stock management for the Mini Marketplace."""
 
 from contextlib import asynccontextmanager
-from datetime import datetime
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import text
 
+from app import database
 from app.config import Config, get_settings
-from app.database import async_session_factory, close_db, init_db
+from app.database import close_db, init_db
 from app.models import Base
 from app.routers import products
 from app.utils.errors import AppError, ConflictError, NotFoundError, ValidationError
 from app.utils.logging import setup_logger
-from common.middleware import CorrelationIDMiddleware
-from common.responses import HealthResponse
+from common.health import build_health_router
+from common.middleware import CORRELATION_ID_HEADER, CorrelationIDMiddleware
 
 logger = setup_logger(__name__)
 
@@ -54,6 +53,7 @@ def create_app(config: Config = None) -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=[CORRELATION_ID_HEADER],
     )
 
     @app.exception_handler(AppError)
@@ -110,40 +110,13 @@ def create_app(config: Config = None) -> FastAPI:
 
     app.include_router(products.router)
 
-    @app.get("/health")
-    async def health_check():
-        checks: dict = {}
-        overall_status = "healthy"
-
-        try:
-            if async_session_factory:
-                async with async_session_factory() as session:
-                    await session.execute(text("SELECT 1"))
-                checks["database"] = {"status": "healthy", "message": "Connected"}
-            else:
-                checks["database"] = {"status": "unhealthy", "message": "Not initialized"}
-                overall_status = "unhealthy"
-        except Exception as e:
-            checks["database"] = {"status": "unhealthy", "message": str(e)}
-            overall_status = "unhealthy"
-
-        health = HealthResponse(
-            status=overall_status,
-            service=config.SERVICE_NAME,
-            version="0.1.0",
-            timestamp=datetime.utcnow(),
-            checks=checks,
+    app.include_router(
+        build_health_router(
+            service_name=config.SERVICE_NAME,
+            version=app.version,
+            get_session_factory=lambda: database.async_session_factory,
         )
-        status_code = 200 if overall_status == "healthy" else 503
-        return JSONResponse(content=health.model_dump(mode="json"), status_code=status_code)
-
-    @app.get("/health/liveness")
-    async def liveness():
-        return {"status": "alive"}
-
-    @app.get("/health/readiness")
-    async def readiness():
-        return {"status": "ready"}
+    )
 
     return app
 

@@ -24,20 +24,32 @@ class CorrelationFilter(logging.Filter):
         return True
 
 
+# Attributes every LogRecord has; anything else on a record came from `extra=`.
+_STANDARD_RECORD_ATTRS = frozenset(vars(logging.makeLogRecord({}))) | {
+    "message",
+    "asctime",
+    "taskName",
+    "correlation_id",
+}
+
+
 class JSONFormatter(logging.Formatter):
-    """Structured JSON log formatter with correlation ID."""
+    """Structured JSON log formatter with correlation ID and `extra=` fields."""
 
     def format(self, record: logging.LogRecord) -> str:
-        log_entry: dict[str, str | int | float | None] = {
+        log_entry: dict[str, object] = {
             "timestamp": self.formatTime(record, self.datefmt),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
-            "correlation_id": get_correlation_id(),
+            "correlation_id": getattr(record, "correlation_id", get_correlation_id()),
             "module": record.module,
             "function": record.funcName,
             "line": record.lineno,
         }
+        for key, value in record.__dict__.items():
+            if key not in _STANDARD_RECORD_ATTRS and key not in log_entry:
+                log_entry[key] = value
         if record.exc_info and record.exc_info[0] is not None:
             log_entry["exception"] = self.formatException(record.exc_info)
         return json.dumps(log_entry, default=str)
@@ -66,7 +78,8 @@ def setup_logger(name: str, level: str = "INFO", json_format: bool = True) -> lo
             formatter = JSONFormatter()
         else:
             formatter = logging.Formatter(
-                "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
+                "%(asctime)s - %(name)s - %(levelname)s - [%(correlation_id)s] "
+                "[%(filename)s:%(lineno)d] - %(message)s"
             )
 
         handler.setFormatter(formatter)
