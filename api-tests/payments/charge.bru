@@ -9,7 +9,7 @@ post {
   auth: none
 }
 
-json {
+body:json {
   "order_id": "{{orderId}}",
   "amount": 1999.98,
   "currency": "USD",
@@ -17,6 +17,6 @@ json {
   "card_last_four": "4242"
 }
 
-script {
-  res: util_variable.set("paymentId", res.body.id)
+script:post-response {
+  bru.setVar("paymentId", res.body.id)
 }

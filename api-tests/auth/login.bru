@@ -9,12 +9,12 @@ post {
   auth: none
 }
 
-json {
+body:json {
   "email": "testuser@example.com",
   "password": "securepass123"
 }
 
-script {
-  res: util_variable.set("accessToken", res.body.access_token)
-  res: util_variable.set("userId", res.body.user_id)
+script:post-response {
+  bru.setVar("accessToken", res.body.access_token)
+  bru.setVar("userId", res.body.user_id)
 }

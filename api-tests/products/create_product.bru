@@ -9,7 +9,7 @@ post {
   auth: none
 }
 
-json {
+body:json {
   "name": "Laptop",
   "description": "High-performance laptop",
   "price": 999.99,
@@ -17,6 +17,6 @@ json {
   "sku": "LAPTOP-001"
 }
 
-script {
-  res: util_variable.set("productId", res.body.id)
+script:post-response {
+  bru.setVar("productId", res.body.id)
 }
