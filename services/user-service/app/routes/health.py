@@ -5,8 +5,8 @@ from datetime import datetime
 from fastapi import APIRouter, status
 from sqlalchemy import text
 
+from app import database
 from app.config import get_settings
-from app.database import async_session_factory
 from common.logging_config import setup_logger
 from common.responses import HealthResponse
 
@@ -25,8 +25,8 @@ async def health_check() -> HealthResponse:
     overall_status = "healthy"
 
     try:
-        if async_session_factory:
-            async with async_session_factory() as session:
+        if database.async_session_factory:
+            async with database.async_session_factory() as session:
                 await session.execute(text("SELECT 1"))
             checks["database"] = {"status": "healthy", "message": "Connected"}
         else:
