@@ -9,7 +9,7 @@ post {
   auth: none
 }
 
-json {
+body:json {
   "user_id": "{{userId}}",
   "product_id": "{{productId}}",
   "quantity": 2,
@@ -17,6 +17,6 @@ json {
   "card_last_four": "4242"
 }
 
-script {
-  res: util_variable.set("orderId", res.body.id)
+script:post-response {
+  bru.setVar("orderId", res.body.id)
 }

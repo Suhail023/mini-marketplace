@@ -12,7 +12,7 @@ uvicorn = {extras = ["standard"], version = "^0.24.0"}
 pydantic = {extras = ["email"], version = "^2.5.0"}
 python-dotenv = "^1.0.0"
 # SQLAlchemy 2.0 style (mapped_column, Mapped, DeclarativeBase)
-sqlalchemy = "^2.0.0"
+sqlalchemy = {extras = ["asyncio"], version = "^2.0.0"}
 alembic = "^1.12.0"
 # Sync driver (psycopg2 for Alembic + SQLAlchemy sync sessions)
 psycopg2-binary = "^2.9.9"

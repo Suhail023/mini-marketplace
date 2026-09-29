@@ -1,7 +1,7 @@
 """RabbitMQ consumer for order events."""
 
+from app import database
 from app.config import get_settings
-from app.database import async_session_factory
 from app.repositories.notification_repository import NotificationRepository
 from app.services.notification_service import NotificationService
 from app.utils.logging import setup_logger
@@ -16,7 +16,7 @@ ROUTING_KEY = "order.created"
 
 async def _handle_order_event(body: dict) -> None:
     """Handle a single incoming OrderCreated event."""
-    async with async_session_factory() as session:
+    async with database.async_session_factory() as session:
         repo = NotificationRepository(session)
         service = NotificationService(repo)
         await service.handle_order_event(body)
