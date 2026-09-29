@@ -1,5 +1,7 @@
 """Notification service — handles incoming order events and persists notifications."""
 
+from decimal import Decimal
+
 from app.contracts.notification import NotificationResponse
 from app.repositories.notification_repository import NotificationRepository
 from app.utils.logging import setup_logger
@@ -13,10 +15,11 @@ def _build_notification(event: dict) -> dict:
     order_id = event.get("order_id", "unknown")
 
     if status == "confirmed":
+        total_amount = Decimal(str(event.get("total_amount", "0")))
         title = "Order Confirmed"
         message = (
             f"Your order #{order_id[:8]} has been confirmed. "
-            f"Total: ${event.get('total_amount', 0):.2f}. "
+            f"Total: ${total_amount:.2f}. "
             f"Thank you for your purchase!"
         )
     else:
