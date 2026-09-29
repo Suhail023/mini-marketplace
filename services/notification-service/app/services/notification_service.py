@@ -15,8 +15,6 @@ def _build_notification(event: dict) -> dict:
     order_id = event.get("order_id", "unknown")
 
     if status == "confirmed":
-        # total_amount arrives as a string: the producer serialises Decimal via
-        # model_dump(mode="json") to avoid float precision loss.
         total_amount = Decimal(str(event.get("total_amount", "0")))
         title = "Order Confirmed"
         message = (
