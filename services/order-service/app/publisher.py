@@ -3,8 +3,8 @@
 import asyncio
 import json
 
+from app import database
 from app.config import get_settings
-from app.database import async_session_factory
 from app.repositories.outbox_repository import OutboxRepository
 from app.utils.logging import setup_logger
 from shared.common.rabbitmq import (
@@ -30,7 +30,7 @@ async def _publish_pending_events() -> None:
     )
     exchange = await declare_exchange(connection)
 
-    async with async_session_factory() as session:
+    async with database.async_session_factory() as session:
         outbox_repo = OutboxRepository(session)
         pending_events = await outbox_repo.get_pending()
 
