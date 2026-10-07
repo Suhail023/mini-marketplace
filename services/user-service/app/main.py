@@ -15,6 +15,7 @@ from app.database import close_db, init_db
 from app.models import Base
 from app.routes import auth, health, users
 from common.logging_config import setup_logger
+from common.middleware import CORRELATION_ID_HEADER, CorrelationIDMiddleware
 
 logger = setup_logger(__name__)
 settings = get_settings()
@@ -41,15 +42,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(CorrelationIDMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=[CORRELATION_ID_HEADER],
 )
 
-app.include_router(health.router, tags=["health"])
+app.include_router(health.router)
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["authentication"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
 
