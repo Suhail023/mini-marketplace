@@ -120,14 +120,9 @@ Mini Marketplace/
 │   ├── docker/          # Dockerfiles
 │   ├── k8s/             # Kubernetes manifests
 │   └── terraform/       # Terraform configs
-├── docs/                # Documentation
 ├── docker-compose.yml   # Local development setup
 └── README.md           # This file
 ```
-
-## 📋 Development Progress
-
-For detailed development roadmap and implementation guide, see [docs/DEVELOPMENT_PLAN.md](./docs/DEVELOPMENT_PLAN.md)
 
 ## 🔐 Security Considerations
 
@@ -143,13 +138,6 @@ For detailed development roadmap and implementation guide, see [docs/DEVELOPMENT
 - **Integration Tests**: Test service interactions
 - **Contract Tests**: Ensure API contracts are maintained
 - **E2E Tests**: Full workflow testing
-
-## 📚 Documentation
-
-- [API Documentation](./docs/api/) - OpenAPI/Swagger specs
-- [Architecture Decisions](./docs/architecture/) - ADRs
-- [Development Guide](./docs/development/) - Development workflows
-- [Deployment Guide](./docs/deployment/) - Deployment instructions
 
 ## 🤝 Contributing
 
