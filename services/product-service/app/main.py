@@ -10,9 +10,10 @@ from app import database
 from app.config import Config, get_settings
 from app.database import close_db, init_db
 from app.models import Base
-from app.routers import products
+from app.routers import internal, products
 from app.utils.errors import AppError, ConflictError, NotFoundError, ValidationError
 from app.utils.logging import setup_logger
+from common.auth import validate_auth_settings
 from common.health import build_health_router
 from common.middleware import CORRELATION_ID_HEADER, CorrelationIDMiddleware
 
@@ -25,6 +26,7 @@ def create_app(config: Config = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        validate_auth_settings(jwt=True, internal_token=True)
         database_url = config.database.url
         if "sqlite" in database_url or "aiosqlite" in database_url:
             database_url = "sqlite+aiosqlite:///./product.db"
@@ -109,6 +111,7 @@ def create_app(config: Config = None) -> FastAPI:
         )
 
     app.include_router(products.router)
+    app.include_router(internal.router)
 
     app.include_router(
         build_health_router(

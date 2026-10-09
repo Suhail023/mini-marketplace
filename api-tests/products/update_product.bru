@@ -6,7 +6,11 @@ meta {
 patch {
   url: {{baseUrl}}/products/{{productId}}
   body: json
-  auth: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
 }
 
 body:json {

@@ -48,7 +48,7 @@ Key configurations:
 - `PORT`: Service port (default: 8001)
 - `DATABASE_URL`: PostgreSQL connection string
 - `REDIS_HOST`: Redis host for session management
-- `JWT_SECRET_KEY`: Secret key for JWT tokens
+- `JWT_SECRET_KEY` (or `JWT_SECRET_KEY_FILE`): Secret key for JWT tokens. Required, ≥32 chars, no default
 
 ## Database
 

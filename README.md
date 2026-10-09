@@ -64,12 +64,17 @@ A microservices-based e-commerce platform demonstrating modern distributed syste
    cd "D:\test\Mini Marketplace"
    ```
 
-2. **Start infrastructure services:**
+2. **Generate secrets** (JWT signing key + internal service token, written to the gitignored `secrets/`):
+   ```bash
+   python scripts/generate_secrets.py
+   ```
+
+3. **Start infrastructure services:**
    ```bash
    docker-compose up -d postgres rabbitmq redis
    ```
 
-3. **Run database migrations:**
+4. **Run database migrations:**
    ```bash
    # Run migrations for each service
    cd services/user-service && poetry run alembic upgrade head
@@ -77,12 +82,12 @@ A microservices-based e-commerce platform demonstrating modern distributed syste
    # ... repeat for other services
    ```
 
-4. **Start all services:**
+5. **Start all services:**
    ```bash
    docker-compose up -d
    ```
 
-5. **Verify health:**
+6. **Verify health:**
    ```bash
    curl http://localhost:8000/health  # API Gateway
    curl http://localhost:8001/health  # User Service
@@ -126,8 +131,31 @@ Mini Marketplace/
 
 ## 🔐 Security Considerations
 
-- JWT-based authentication
-- Service-to-service authentication (API keys or mTLS)
+### Authentication & authorization
+
+- **End users** authenticate with the bearer JWT issued by user-service. Every
+  service verifies it with `shared/common/auth.py` and takes the caller's
+  identity from the `sub` claim — never from the request body or path.
+- **Orders and notifications** are scoped to the caller: `GET /orders/`,
+  `GET /orders/{id}`, `GET /notifications/` and `GET /notifications/{id}` only
+  return the caller's own records (other users' IDs return 404).
+- **Product writes** (`POST`, `PATCH`, `DELETE /products...`) require the `admin`
+  role. Grant it by listing user IDs in `ADMIN_USER_IDS` (comma-separated) on
+  user-service; the role is embedded in tokens issued after that.
+- **Service-to-service calls** go to `/internal/*` endpoints
+  (`/internal/products/{id}/stock/decrement`, `/internal/payments/*`) and must send
+  the shared `X-Internal-Token` header (`INTERNAL_SERVICE_TOKEN`). The gateway
+  does not route `/internal` or `/payments`, and strips that header from clients.
+- **Secrets** (`JWT_SECRET_KEY`, `INTERNAL_SERVICE_TOKEN`) have no defaults and are
+  never committed. Compose mounts them as Docker secrets from `./secrets/`
+  (gitignored); generate them with `python scripts/generate_secrets.py` and rotate
+  with `--rotate` (rotating the JWT key logs everyone out). Outside Docker, set the
+  variable or `<NAME>_FILE`. Services refuse to start if a secret they need is
+  missing, shorter than 32 characters, or a known placeholder.
+
+### General
+
+- Service-to-service authentication (shared internal token; mTLS later)
 - Secret management (environment variables, Vault)
 - Rate limiting at API Gateway
 - Input validation in all services

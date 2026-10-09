@@ -35,6 +35,15 @@ class UserServiceConfig(BaseServiceConfig):
     MAX_LOGIN_ATTEMPTS: int = 5
     LOCKOUT_DURATION_MINUTES: int = 30
 
+    # Comma-separated user IDs that receive the "admin" role claim. IDs (not
+    # emails) because IDs are server-generated and can't be claimed by
+    # registering someone else's address first.
+    ADMIN_USER_IDS: str = ""
+
+    @property
+    def admin_user_ids(self) -> frozenset[str]:
+        return frozenset(uid.strip() for uid in self.ADMIN_USER_IDS.split(",") if uid.strip())
+
 
 @lru_cache
 def get_settings() -> UserServiceConfig:

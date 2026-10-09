@@ -1,9 +1,13 @@
 meta {
-  name: Get Payment
+  name: Get Payment (internal - not exposed)
   seq: 18
 }
 
 get {
   url: {{baseUrl}}/payments/{{paymentId}}
   auth: none
+}
+
+assert {
+  res.status: eq 404
 }

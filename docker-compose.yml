@@ -1,3 +1,10 @@
+# Secrets are mounted from ./secrets (gitignored) as Docker secrets and read by
+# services via *_FILE env vars. Nothing secret lives in this file.
+# Create them once with: python scripts/generate_secrets.py
+x-jwt-env: &jwt-env
+  JWT_SECRET_KEY_FILE: /run/secrets/jwt_secret_key
+  JWT_ALGORITHM: HS256
+
 services:
   # Infrastructure Services
   postgres:
@@ -63,16 +70,18 @@ services:
     ports:
       - "8001:8001"
     environment:
-      - SERVICE_NAME=user-service
-      - PORT=8001
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/userdb
-      - JWT_SECRET_KEY=super-secret-jwt-key-change-in-production
-      - JWT_ALGORITHM=HS256
-      - JWT_EXPIRATION_MINUTES=60
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - LOG_LEVEL=INFO
-      - ENVIRONMENT=development
+      <<: *jwt-env
+      SERVICE_NAME: user-service
+      PORT: 8001
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/userdb
+      JWT_EXPIRATION_MINUTES: 60
+      ADMIN_USER_IDS: ${ADMIN_USER_IDS:-}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      LOG_LEVEL: INFO
+      ENVIRONMENT: development
+    secrets:
+      - jwt_secret_key
     depends_on:
       postgres:
         condition: service_healthy
@@ -95,11 +104,16 @@ services:
     ports:
       - "8002:8002"
     environment:
-      - SERVICE_NAME=product-service
-      - PORT=8002
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/productdb
-      - REDIS_HOST=redis
-      - LOG_LEVEL=INFO
+      <<: *jwt-env
+      INTERNAL_SERVICE_TOKEN_FILE: /run/secrets/internal_service_token
+      SERVICE_NAME: product-service
+      PORT: 8002
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/productdb
+      REDIS_HOST: redis
+      LOG_LEVEL: INFO
+    secrets:
+      - jwt_secret_key
+      - internal_service_token
     depends_on:
       postgres:
         condition: service_healthy
@@ -117,19 +131,24 @@ services:
     ports:
       - "8003:8003"
     environment:
-      - SERVICE_NAME=order-service
-      - PORT=8003
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/orderdb
-      - PRODUCT_SERVICE_URL=http://product-service:8002
-      - PAYMENT_SERVICE_URL=http://payment-service:8004
-      - HTTP_TIMEOUT=10.0
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
-      - RABBITMQ_USER=guest
-      - RABBITMQ_PASSWORD=guest
-      - RABBITMQ_VHOST=/
-      - LOG_LEVEL=INFO
-      - ENVIRONMENT=development
+      <<: *jwt-env
+      INTERNAL_SERVICE_TOKEN_FILE: /run/secrets/internal_service_token
+      SERVICE_NAME: order-service
+      PORT: 8003
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/orderdb
+      PRODUCT_SERVICE_URL: http://product-service:8002
+      PAYMENT_SERVICE_URL: http://payment-service:8004
+      HTTP_TIMEOUT: 10.0
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest
+      RABBITMQ_VHOST: /
+      LOG_LEVEL: INFO
+      ENVIRONMENT: development
+    secrets:
+      - jwt_secret_key
+      - internal_service_token
     depends_on:
       postgres:
         condition: service_healthy
@@ -156,11 +175,14 @@ services:
     ports:
       - "8004:8004"
     environment:
-      - SERVICE_NAME=payment-service
-      - PORT=8004
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/paymentdb
-      - LOG_LEVEL=INFO
-      - ENVIRONMENT=development
+      INTERNAL_SERVICE_TOKEN_FILE: /run/secrets/internal_service_token
+      SERVICE_NAME: payment-service
+      PORT: 8004
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/paymentdb
+      LOG_LEVEL: INFO
+      ENVIRONMENT: development
+    secrets:
+      - internal_service_token
     depends_on:
       postgres:
         condition: service_healthy
@@ -181,16 +203,19 @@ services:
     ports:
       - "8005:8005"
     environment:
-      - SERVICE_NAME=notification-service
-      - PORT=8005
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/notificationdb
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
-      - RABBITMQ_USER=guest
-      - RABBITMQ_PASSWORD=guest
-      - RABBITMQ_VHOST=/
-      - LOG_LEVEL=INFO
-      - ENVIRONMENT=development
+      <<: *jwt-env
+      SERVICE_NAME: notification-service
+      PORT: 8005
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/notificationdb
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest
+      RABBITMQ_VHOST: /
+      LOG_LEVEL: INFO
+      ENVIRONMENT: development
+    secrets:
+      - jwt_secret_key
     depends_on:
       postgres:
         condition: service_healthy
@@ -232,6 +257,12 @@ services:
     networks:
       - marketplace-network
     restart: unless-stopped
+
+secrets:
+  jwt_secret_key:
+    file: ./secrets/jwt_secret_key
+  internal_service_token:
+    file: ./secrets/internal_service_token
 
 volumes:
   postgres_data:

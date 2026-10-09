@@ -10,6 +10,7 @@ from app.clients import (
 )
 from app.contracts.order import CreateOrderRequest, OrderResponse
 from app.repositories.order_repository import OrderRepository
+from app.utils.errors import ConflictError
 from app.utils.logging import setup_logger
 from shared.events.order import OrderCreatedEvent
 
@@ -75,8 +76,11 @@ class OrderService:
     def __init__(self, order_repository: OrderRepository):
         self.order_repository = order_repository
 
-    async def create_order(self, request: CreateOrderRequest) -> OrderResponse:
+    async def create_order(self, request: CreateOrderRequest, user_id: str) -> OrderResponse:
         existing = await self.order_repository.get_by_idempotency_key(request.idempotency_key)
+        if existing and existing.user_id != user_id:
+            # Keys are globally unique; never replay another user's order.
+            raise ConflictError("Idempotency key is already in use")
         if existing:
             logger.info(f"Returning existing order for idempotency key: {request.idempotency_key}")
             return OrderResponse(
@@ -98,7 +102,7 @@ class OrderService:
 
         # Step 2: Create pending order
         order_data = {
-            "user_id": request.user_id,
+            "user_id": user_id,
             "product_id": request.product_id,
             "quantity": request.quantity,
             "total_amount": total_amount,
@@ -171,9 +175,10 @@ class OrderService:
             created_at=order.created_at,
         )
 
-    async def get_order(self, order_id: str) -> OrderResponse | None:
+    async def get_order(self, order_id: str, user_id: str) -> OrderResponse | None:
+        """Return the order only if it belongs to user_id (otherwise None, i.e. 404)."""
         order = await self.order_repository.get_by_id(order_id)
-        if not order:
+        if not order or order.user_id != user_id:
             return None
         return OrderResponse(
             id=order.id,
