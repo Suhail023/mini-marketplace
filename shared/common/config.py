@@ -60,6 +60,8 @@ class BaseServiceConfig(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        # .env is shared by every service and holds keys this model doesn't declare.
+        extra = "ignore"
 
 
 class APIGatewayConfig(BaseServiceConfig):

@@ -3,10 +3,18 @@
 A secret is read from the file named by `<NAME>_FILE` (Docker/Kubernetes
 secrets) or, failing that, from the `<NAME>` environment variable. There are
 deliberately no defaults: a missing or weak secret must stop the service.
+
+Outside Docker the nearest `.env` is loaded first, so every service sees the
+same values whichever config style it uses. Real environment variables win.
 """
 
 import os
 from pathlib import Path
+
+from dotenv import find_dotenv, load_dotenv
+
+_DOTENV_PATH = find_dotenv(usecwd=True)
+load_dotenv(_DOTENV_PATH)
 
 MIN_SECRET_LENGTH = 32
 
@@ -25,14 +33,24 @@ _KNOWN_PUBLIC_SECRETS = frozenset(
 _PLACEHOLDER_MARKERS = ("change-me", "change-in-production", "changeme", "placeholder")
 
 
+def _resolve_secret_path(file_path: str) -> Path:
+    # A relative path is anchored to the directory holding .env, not the cwd,
+    # so it works whichever service directory the process was started from.
+    path = Path(file_path)
+    if path.is_absolute() or not _DOTENV_PATH:
+        return path
+    return Path(_DOTENV_PATH).parent / path
+
+
 def read_secret(name: str) -> str:
     """Return the secret from `<name>_FILE` if set, else from `<name>`; "" if neither."""
     file_path = os.getenv(f"{name}_FILE")
     if file_path:
+        resolved = _resolve_secret_path(file_path)
         try:
-            return Path(file_path).read_text(encoding="utf-8").strip()
+            return resolved.read_text(encoding="utf-8").strip()
         except OSError as exc:
-            raise RuntimeError(f"Cannot read {name}_FILE at {file_path!r}: {exc}") from exc
+            raise RuntimeError(f"Cannot read {name}_FILE at {str(resolved)!r}: {exc}") from exc
     return os.getenv(name, "").strip()
 
 
