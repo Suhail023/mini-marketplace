@@ -143,14 +143,20 @@ Mini Marketplace/
   role. Grant it by listing user IDs in `ADMIN_USER_IDS` (comma-separated) on
   user-service; the role is embedded in tokens issued after that.
 - **Service-to-service calls** go to `/internal/*` endpoints
-  (`/internal/products/{id}/stock/decrement`, `/internal/payments/*`) and must send
-  the shared `X-Internal-Token` header (`INTERNAL_SERVICE_TOKEN`). The gateway
-  does not route `/internal` or `/payments`, and strips that header from clients.
+  (`/internal/products/{id}/stock/decrement`, `/internal/products/{id}/stock/increment`,
+  `/internal/payments/*`) and must send the shared `X-Internal-Token` header
+  (`INTERNAL_SERVICE_TOKEN`). The gateway does not route `/internal` or `/payments`,
+  and strips that header from clients. Compose publishes the service ports
+  (8001-8005) on `127.0.0.1` only, so they cannot be reached around the gateway
+  from another machine.
+- **Idempotency keys** on `POST /orders/` are scoped to the caller: a retry with
+  the same key replays that user's order, and another user's key never collides.
 - **Secrets** (`JWT_SECRET_KEY`, `INTERNAL_SERVICE_TOKEN`) have no defaults and are
   never committed. Compose mounts them as Docker secrets from `./secrets/`
   (gitignored); generate them with `python scripts/generate_secrets.py` and rotate
   with `--rotate` (rotating the JWT key logs everyone out). Outside Docker, set the
-  variable or `<NAME>_FILE`. Services refuse to start if a secret they need is
+  variable or `<NAME>_FILE` in the environment or the root `.env` (relative
+  `_FILE` paths resolve from the `.env` directory). Services refuse to start if a secret they need is
   missing, shorter than 32 characters, or a known placeholder.
 
 ### General

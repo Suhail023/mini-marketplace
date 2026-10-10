@@ -62,13 +62,15 @@ services:
       - marketplace-network
 
   # Microservices
+  # Service ports are published on loopback only: /internal/* and payment-service
+  # must not be reachable from the network, where the gateway can't shield them.
   user-service:
     build:
       context: .
       dockerfile: services/user-service/Dockerfile
     container_name: user-service
     ports:
-      - "8001:8001"
+      - "127.0.0.1:8001:8001"
     environment:
       <<: *jwt-env
       SERVICE_NAME: user-service
@@ -102,7 +104,7 @@ services:
       dockerfile: services/product-service/Dockerfile
     container_name: product-service
     ports:
-      - "8002:8002"
+      - "127.0.0.1:8002:8002"
     environment:
       <<: *jwt-env
       INTERNAL_SERVICE_TOKEN_FILE: /run/secrets/internal_service_token
@@ -129,7 +131,7 @@ services:
       dockerfile: services/order-service/Dockerfile
     container_name: order-service
     ports:
-      - "8003:8003"
+      - "127.0.0.1:8003:8003"
     environment:
       <<: *jwt-env
       INTERNAL_SERVICE_TOKEN_FILE: /run/secrets/internal_service_token
@@ -173,7 +175,7 @@ services:
       dockerfile: services/payment-service/Dockerfile
     container_name: payment-service
     ports:
-      - "8004:8004"
+      - "127.0.0.1:8004:8004"
     environment:
       INTERNAL_SERVICE_TOKEN_FILE: /run/secrets/internal_service_token
       SERVICE_NAME: payment-service
@@ -201,7 +203,7 @@ services:
       dockerfile: services/notification-service/Dockerfile
     container_name: notification-service
     ports:
-      - "8005:8005"
+      - "127.0.0.1:8005:8005"
     environment:
       <<: *jwt-env
       SERVICE_NAME: notification-service
@@ -244,8 +246,6 @@ services:
       product-service:
         condition: service_healthy
       order-service:
-        condition: service_healthy
-      payment-service:
         condition: service_healthy
       notification-service:
         condition: service_healthy
