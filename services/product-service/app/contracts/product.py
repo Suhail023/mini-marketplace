@@ -59,6 +59,10 @@ class StockDecrementRequest(BaseContract):
     quantity: int = Field(..., gt=0)
 
 
+class StockIncrementRequest(BaseContract):
+    quantity: int = Field(..., gt=0)
+
+
 class StockResponse(BaseContract):
     id: str
     name: str

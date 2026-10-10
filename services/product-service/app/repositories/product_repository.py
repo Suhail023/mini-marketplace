@@ -106,3 +106,21 @@ class ProductRepository:
             await self.db.rollback()
             logger.error(f"Error decrementing stock for {product_id}: {e!s}")
             raise AppError("Failed to decrement stock", 500)
+
+    async def increment_stock(self, product_id: str, quantity: int) -> Product | None:
+        try:
+            stmt = (
+                update(Product)
+                .where(Product.id == product_id)
+                .values(stock=Product.stock + quantity)
+            )
+            result = await self.db.execute(stmt)
+            if result.rowcount == 0:
+                return None
+
+            await self.db.commit()
+            return await self.db.get(Product, product_id)
+        except Exception as e:
+            await self.db.rollback()
+            logger.error(f"Error incrementing stock for {product_id}: {e!s}")
+            raise AppError("Failed to increment stock", 500)

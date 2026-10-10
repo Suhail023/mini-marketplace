@@ -23,3 +23,13 @@ async def decrement_stock(
 ) -> Any:
     response = await service.decrement_stock(product_id, data)
     return response.to_dict()
+
+
+@router.post("/{product_id}/stock/increment")
+async def increment_stock(
+    product_id: str,
+    data: dict,
+    service: ProductService = Depends(get_product_service),
+) -> Any:
+    response = await service.increment_stock(product_id, data)
+    return response.to_dict()
