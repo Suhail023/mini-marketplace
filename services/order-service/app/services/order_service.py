@@ -2,6 +2,8 @@
 
 import uuid
 
+from sqlalchemy.exc import IntegrityError
+
 from app.clients import (
     charge_payment,
     check_and_reserve_stock,
@@ -9,6 +11,7 @@ from app.clients import (
     release_stock,
 )
 from app.contracts.order import CreateOrderRequest, OrderResponse
+from app.models.order import Order
 from app.repositories.order_repository import OrderRepository
 from app.utils.errors import ConflictError
 from app.utils.logging import setup_logger
@@ -72,28 +75,31 @@ def _build_event_payload(order, status: str) -> dict:  # noqa: ANN001
     return event.model_dump(mode="json")
 
 
+def _to_order_response(order: Order) -> OrderResponse:
+    return OrderResponse(
+        id=order.id,
+        user_id=order.user_id,
+        product_id=order.product_id,
+        quantity=order.quantity,
+        total_amount=order.total_amount,
+        status=order.status,
+        payment_id=order.payment_id,
+        idempotency_key=order.idempotency_key,
+        created_at=order.created_at,
+    )
+
+
 class OrderService:
     def __init__(self, order_repository: OrderRepository):
         self.order_repository = order_repository
 
     async def create_order(self, request: CreateOrderRequest, user_id: str) -> OrderResponse:
-        existing = await self.order_repository.get_by_idempotency_key(request.idempotency_key)
-        if existing and existing.user_id != user_id:
-            # Keys are globally unique; never replay another user's order.
-            raise ConflictError("Idempotency key is already in use")
+        existing = await self.order_repository.get_by_idempotency_key(
+            user_id, request.idempotency_key
+        )
         if existing:
             logger.info(f"Returning existing order for idempotency key: {request.idempotency_key}")
-            return OrderResponse(
-                id=existing.id,
-                user_id=existing.user_id,
-                product_id=existing.product_id,
-                quantity=existing.quantity,
-                total_amount=existing.total_amount,
-                status=existing.status,
-                payment_id=existing.payment_id,
-                idempotency_key=existing.idempotency_key,
-                created_at=existing.created_at,
-            )
+            return _to_order_response(existing)
 
         # Step 1: Get product and calculate total — raises on missing/invalid price
         product_data = await get_product(request.product_id)
@@ -109,7 +115,17 @@ class OrderService:
             "status": "pending",
             "idempotency_key": request.idempotency_key,
         }
-        order = await self.order_repository.create(order_data)
+        try:
+            order = await self.order_repository.create(order_data)
+        except IntegrityError:
+            # A concurrent request with the same key won the insert; replay its order.
+            winner = await self.order_repository.get_by_idempotency_key(
+                user_id, request.idempotency_key
+            )
+            if winner is None:
+                # Databases created before keys were per-user still enforce global uniqueness.
+                raise ConflictError("Idempotency key is already in use")
+            return _to_order_response(winner)
         logger.info(f"Created pending order {order.id}")
 
         stock_reserved = False
@@ -123,7 +139,7 @@ class OrderService:
             payment_result = await charge_payment(
                 order_id=order.id,
                 amount=total_amount,
-                idempotency_key=f"payment-{request.idempotency_key}",
+                idempotency_key=f"payment-{order.id}",
                 card_last_four=request.card_last_four,
             )
 
@@ -163,50 +179,17 @@ class OrderService:
             )
             raise
 
-        return OrderResponse(
-            id=order.id,
-            user_id=order.user_id,
-            product_id=order.product_id,
-            quantity=order.quantity,
-            total_amount=order.total_amount,
-            status=order.status,
-            payment_id=order.payment_id,
-            idempotency_key=order.idempotency_key,
-            created_at=order.created_at,
-        )
+        return _to_order_response(order)
 
     async def get_order(self, order_id: str, user_id: str) -> OrderResponse | None:
         """Return the order only if it belongs to user_id (otherwise None, i.e. 404)."""
         order = await self.order_repository.get_by_id(order_id)
         if not order or order.user_id != user_id:
             return None
-        return OrderResponse(
-            id=order.id,
-            user_id=order.user_id,
-            product_id=order.product_id,
-            quantity=order.quantity,
-            total_amount=order.total_amount,
-            status=order.status,
-            payment_id=order.payment_id,
-            idempotency_key=order.idempotency_key,
-            created_at=order.created_at,
-        )
+        return _to_order_response(order)
 
     async def list_orders(
         self, user_id: str, skip: int = 0, limit: int = 20
     ) -> list[OrderResponse]:
         orders = await self.order_repository.list_by_user(user_id, skip=skip, limit=limit)
-        return [
-            OrderResponse(
-                id=o.id,
-                user_id=o.user_id,
-                product_id=o.product_id,
-                quantity=o.quantity,
-                total_amount=o.total_amount,
-                status=o.status,
-                payment_id=o.payment_id,
-                idempotency_key=o.idempotency_key,
-                created_at=o.created_at,
-            )
-            for o in orders
-        ]
+        return [_to_order_response(o) for o in orders]
