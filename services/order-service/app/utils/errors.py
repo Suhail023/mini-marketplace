@@ -20,3 +20,8 @@ class NotFoundError(AppError):
     def __init__(self, resource: str, identifier: str):
         message = f"{resource} with id '{identifier}' not found"
         super().__init__(message, 404, {"resource": resource, "id": identifier})
+
+
+class ConflictError(AppError):
+    def __init__(self, message: str):
+        super().__init__(message, 409)

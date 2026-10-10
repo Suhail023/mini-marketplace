@@ -6,7 +6,11 @@ meta {
 post {
   url: {{baseUrl}}/products/
   body: json
-  auth: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
 }
 
 body:json {

@@ -5,5 +5,9 @@ meta {
 
 delete {
   url: {{baseUrl}}/products/{{productId}}
-  auth: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
 }

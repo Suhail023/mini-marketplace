@@ -3,6 +3,7 @@
 import json
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.order import Order
@@ -17,18 +18,22 @@ class OrderRepository:
         self.db = db
 
     async def create(self, order_data: dict) -> Order:
-        order = Order(**order_data)
-        self.db.add(order)
-        await self.db.commit()
-        await self.db.refresh(order)
-        return order
+        try:
+            order = Order(**order_data)
+            self.db.add(order)
+            await self.db.commit()
+            await self.db.refresh(order)
+            return order
+        except IntegrityError:
+            await self.db.rollback()
+            raise
 
     async def get_by_id(self, order_id: str) -> Order | None:
         return await self.db.get(Order, order_id)
 
-    async def get_by_idempotency_key(self, idempotency_key: str) -> Order | None:
+    async def get_by_idempotency_key(self, user_id: str, idempotency_key: str) -> Order | None:
         result = await self.db.execute(
-            select(Order).where(Order.idempotency_key == idempotency_key)
+            select(Order).where(Order.user_id == user_id, Order.idempotency_key == idempotency_key)
         )
         return result.scalar_one_or_none()
 

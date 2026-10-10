@@ -11,6 +11,7 @@ from app.database import close_db, init_db
 from app.models import Base
 from app.routers import payments
 from app.utils.logging import setup_logger
+from common.auth import validate_auth_settings
 from common.health import build_health_router
 from common.middleware import CORRELATION_ID_HEADER, CorrelationIDMiddleware
 
@@ -21,6 +22,7 @@ settings = get_settings()
 def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        validate_auth_settings(internal_token=True)
         db_engine = init_db()
         async with db_engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)

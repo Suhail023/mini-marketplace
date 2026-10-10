@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 
 class CreateOrderRequest(BaseModel):
-    user_id: str = Field(..., min_length=1)
+    # The ordering user is taken from the JWT `sub` claim, never from the body.
     product_id: str = Field(..., min_length=1)
     quantity: int = Field(..., gt=0)
     idempotency_key: str = Field(..., min_length=1, max_length=255)

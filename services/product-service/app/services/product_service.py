@@ -6,6 +6,7 @@ from app.contracts.product import (
     ProductResponse,
     ProductUpdateContract,
     StockDecrementRequest,
+    StockIncrementRequest,
     StockResponse,
 )
 from app.repositories.product_repository import ProductRepository
@@ -129,4 +130,19 @@ class ProductService:
             raise NotFoundError("Product", product_id)
 
         logger.info(f"Successfully decremented stock for {product_id}")
+        return StockResponse.from_product_model(product)
+
+    async def increment_stock(self, product_id: str, data: dict[str, Any]) -> StockResponse:
+        logger.info(f"Processing stock increment request for {product_id}")
+
+        try:
+            request_model = StockIncrementRequest(**data)
+        except Exception as e:
+            raise ValidationError(str(e))
+
+        product = await self.product_repository.increment_stock(product_id, request_model.quantity)
+        if not product:
+            raise NotFoundError("Product", product_id)
+
+        logger.info(f"Successfully incremented stock for {product_id}")
         return StockResponse.from_product_model(product)

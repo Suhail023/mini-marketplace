@@ -19,6 +19,8 @@ psycopg2-binary = "^2.9.9"
 # Async drivers
 asyncpg = "^0.29.0"
 aiosqlite = "^0.19.0"
+# JWT verification + internal-token auth (shared/common/auth.py)
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"
