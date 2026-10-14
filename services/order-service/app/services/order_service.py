@@ -1,66 +1,27 @@
-"""Order service - orchestrates Product and Payment services."""
+"""Order service - orchestrates the Product and Payment services as a saga."""
 
+from typing import Any
 import uuid
 
-from sqlalchemy.exc import IntegrityError
-
-from app.clients import (
-    charge_payment,
-    check_and_reserve_stock,
-    get_product,
-    release_stock,
-)
-from app.contracts.order import CreateOrderRequest, OrderResponse
+from app.clients import PaymentClient, PaymentResult, ProductClient
+from app.contracts.order import CreateOrderRequest, OrderListResponse, OrderResponse
 from app.models.order import Order
 from app.repositories.order_repository import OrderRepository
-from app.utils.errors import ConflictError
+from app.utils.errors import ConflictError, NotFoundError
 from app.utils.logging import setup_logger
 from shared.events.order import OrderCreatedEvent
 
 logger = setup_logger(__name__)
 
+ORDER_EVENT_TYPE = "OrderCreated"
 ORDER_EVENTS_ROUTING_KEY = "order.created"
 
-
-async def _rollback_stock(product_id: str, quantity: int, order_id: str) -> None:
-    """Compensating action: restore stock that was decremented for a failed order."""
-    try:
-        await release_stock(product_id, quantity)
-        logger.info(f"Stock rolled back for order {order_id}: +{quantity} units of {product_id}")
-    except Exception as rollback_err:
-        logger.error(
-            f"STOCK ROLLBACK FAILED for order {order_id} "
-            f"(product={product_id}, qty={quantity}): {rollback_err}. "
-            "Manual inventory reconciliation required."
-        )
+STATUS_PENDING = "pending"
+STATUS_CONFIRMED = "confirmed"
+STATUS_FAILED = "failed"
 
 
-def _extract_price(product_data: dict, product_id: str) -> float:
-    """Extract price from product-service response.
-
-    The product-service returns a flat dict: {"id": ..., "price": ..., ...}.
-    Raises ValueError if the price field is missing or not positive.
-    """
-    if "price" in product_data:
-        price = product_data["price"]
-    elif "data" in product_data and "price" in product_data["data"]:
-        price = product_data["data"]["price"]
-    else:
-        raise ValueError(
-            f"Product service response for '{product_id}' is missing a 'price' field. "
-            f"Got keys: {list(product_data.keys())}"
-        )
-
-    if not isinstance(price, int | float) or price <= 0:
-        raise ValueError(
-            f"Product '{product_id}' has an invalid price: {price!r}. Price must be > 0."
-        )
-
-    return float(price)
-
-
-def _build_event_payload(order, status: str) -> dict:  # noqa: ANN001
-    """Build the OrderCreated event payload from an order ORM object."""
+def _build_event_payload(order: Order, status: str, payment_id: str | None) -> dict[str, Any]:
     event = OrderCreatedEvent(
         event_id=str(uuid.uuid4()),
         order_id=order.id,
@@ -69,127 +30,127 @@ def _build_event_payload(order, status: str) -> dict:  # noqa: ANN001
         quantity=order.quantity,
         total_amount=order.total_amount,
         status=status,
-        payment_id=order.payment_id,
+        payment_id=payment_id,
         idempotency_key=order.idempotency_key,
     )
     return event.model_dump(mode="json")
 
 
-def _to_order_response(order: Order) -> OrderResponse:
-    return OrderResponse(
-        id=order.id,
-        user_id=order.user_id,
-        product_id=order.product_id,
-        quantity=order.quantity,
-        total_amount=order.total_amount,
-        status=order.status,
-        payment_id=order.payment_id,
-        idempotency_key=order.idempotency_key,
-        created_at=order.created_at,
-    )
-
-
 class OrderService:
-    def __init__(self, order_repository: OrderRepository):
+    def __init__(
+        self,
+        order_repository: OrderRepository,
+        product_client: ProductClient,
+        payment_client: PaymentClient,
+    ) -> None:
         self.order_repository = order_repository
+        self.product_client = product_client
+        self.payment_client = payment_client
 
     async def create_order(self, request: CreateOrderRequest, user_id: str) -> OrderResponse:
         existing = await self.order_repository.get_by_idempotency_key(
             user_id, request.idempotency_key
         )
         if existing:
-            logger.info(f"Returning existing order for idempotency key: {request.idempotency_key}")
-            return _to_order_response(existing)
+            logger.info("Replaying order for idempotency key", extra={"order_id": existing.id})
+            return OrderResponse.from_order_model(existing)
 
-        # Step 1: Get product and calculate total — raises on missing/invalid price
-        product_data = await get_product(request.product_id)
-        price = _extract_price(product_data, request.product_id)
-        total_amount = price * request.quantity
+        product = await self.product_client.get_product(request.product_id)
 
-        # Step 2: Create pending order
-        order_data = {
-            "user_id": user_id,
-            "product_id": request.product_id,
-            "quantity": request.quantity,
-            "total_amount": total_amount,
-            "status": "pending",
-            "idempotency_key": request.idempotency_key,
-        }
         try:
-            order = await self.order_repository.create(order_data)
-        except IntegrityError:
+            order = await self.order_repository.create(
+                {
+                    "user_id": user_id,
+                    "product_id": request.product_id,
+                    "quantity": request.quantity,
+                    "total_amount": product.price * request.quantity,
+                    "status": STATUS_PENDING,
+                    "idempotency_key": request.idempotency_key,
+                }
+            )
+        except ConflictError:
             # A concurrent request with the same key won the insert; replay its order.
             winner = await self.order_repository.get_by_idempotency_key(
                 user_id, request.idempotency_key
             )
             if winner is None:
                 # Databases created before keys were per-user still enforce global uniqueness.
-                raise ConflictError("Idempotency key is already in use")
-            return _to_order_response(winner)
-        logger.info(f"Created pending order {order.id}")
+                raise
+            return OrderResponse.from_order_model(winner)
+        logger.info("Created pending order", extra={"order_id": order.id})
 
-        stock_reserved = False
         try:
-            # Step 3: Reserve stock
-            await check_and_reserve_stock(request.product_id, request.quantity)
-            stock_reserved = True
-            logger.info(f"Stock reserved for order {order.id}")
-
-            # Step 4: Charge payment
-            payment_result = await charge_payment(
-                order_id=order.id,
-                amount=total_amount,
-                idempotency_key=f"payment-{order.id}",
-                card_last_four=request.card_last_four,
-            )
-
-            if payment_result.get("status") == "succeeded":
-                order = await self.order_repository.update_status_with_outbox(
-                    order.id,
-                    "confirmed",
-                    payment_result.get("id"),
-                    _build_event_payload(order, "confirmed"),
-                    ORDER_EVENTS_ROUTING_KEY,
-                )
-                logger.info(f"Order {order.id} confirmed with payment {payment_result.get('id')}")
-            else:
-                logger.warning(
-                    f"Order {order.id} failed: payment status={payment_result.get('status')}. "
-                    "Rolling back reserved stock."
-                )
-                await _rollback_stock(request.product_id, request.quantity, order.id)
-                order = await self.order_repository.update_status_with_outbox(
-                    order.id,
-                    "failed",
-                    None,
-                    _build_event_payload(order, "failed"),
-                    ORDER_EVENTS_ROUTING_KEY,
-                )
-
-        except Exception as e:
-            logger.error(f"Order {order.id} failed with exception: {e}")
-            if stock_reserved:
-                await _rollback_stock(request.product_id, request.quantity, order.id)
-            order = await self.order_repository.update_status_with_outbox(
-                order.id,
-                "failed",
-                None,
-                _build_event_payload(order, "failed"),
-                ORDER_EVENTS_ROUTING_KEY,
-            )
+            payment = await self._reserve_stock_and_charge(order, request.card_last_four)
+        except Exception:
+            await self._finalize(order, STATUS_FAILED, None)
             raise
 
-        return _to_order_response(order)
+        if payment.succeeded:
+            order = await self._finalize(order, STATUS_CONFIRMED, payment.id)
+            logger.info("Order confirmed", extra={"order_id": order.id, "payment_id": payment.id})
+        else:
+            order = await self._finalize(order, STATUS_FAILED, None)
+            logger.warning("Order failed: payment declined", extra={"order_id": order.id})
 
-    async def get_order(self, order_id: str, user_id: str) -> OrderResponse | None:
-        """Return the order only if it belongs to user_id (otherwise None, i.e. 404)."""
+        return OrderResponse.from_order_model(order)
+
+    async def get_order(self, order_id: str, user_id: str) -> OrderResponse:
         order = await self.order_repository.get_by_id(order_id)
-        if not order or order.user_id != user_id:
-            return None
-        return _to_order_response(order)
+        # 404 (not 403) for other users' orders so IDs can't be probed.
+        if order is None or order.user_id != user_id:
+            raise NotFoundError("Order", order_id)
+        return OrderResponse.from_order_model(order)
 
-    async def list_orders(
-        self, user_id: str, skip: int = 0, limit: int = 20
-    ) -> list[OrderResponse]:
-        orders = await self.order_repository.list_by_user(user_id, skip=skip, limit=limit)
-        return [_to_order_response(o) for o in orders]
+    async def list_orders(self, user_id: str, skip: int, limit: int) -> OrderListResponse:
+        orders, total = await self.order_repository.list_page_by_user(user_id, skip, limit)
+        return OrderListResponse(
+            orders=[OrderResponse.from_order_model(o) for o in orders],
+            total=total,
+        )
+
+    async def _reserve_stock_and_charge(
+        self, order: Order, card_last_four: str | None
+    ) -> PaymentResult:
+        """Reserve stock, then charge; releases the stock again if the charge does not succeed."""
+        await self.product_client.reserve_stock(order.product_id, order.quantity)
+        logger.info("Stock reserved", extra={"order_id": order.id})
+
+        try:
+            payment = await self.payment_client.charge(
+                order_id=order.id,
+                amount=order.total_amount,
+                idempotency_key=f"payment-{order.id}",
+                card_last_four=card_last_four,
+            )
+        except Exception:
+            await self._release_stock(order)
+            raise
+
+        if not payment.succeeded:
+            await self._release_stock(order)
+        return payment
+
+    async def _release_stock(self, order: Order) -> None:
+        """Compensating action: restore stock that was reserved for a failed order."""
+        try:
+            await self.product_client.release_stock(order.product_id, order.quantity)
+            logger.info("Stock rolled back", extra={"order_id": order.id})
+        except Exception:
+            logger.error(
+                "STOCK ROLLBACK FAILED. Manual inventory reconciliation required.",
+                extra={
+                    "order_id": order.id,
+                    "product_id": order.product_id,
+                    "quantity": order.quantity,
+                },
+            )
+
+    async def _finalize(self, order: Order, status: str, payment_id: str | None) -> Order:
+        return await self.order_repository.finalize_with_outbox(
+            order,
+            status,
+            payment_id,
+            ORDER_EVENT_TYPE,
+            _build_event_payload(order, status, payment_id),
+            ORDER_EVENTS_ROUTING_KEY,
+        )

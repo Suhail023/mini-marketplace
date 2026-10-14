@@ -1,7 +1,14 @@
-"""HTTP clients for calling Product and Payment services."""
+"""HTTP adapters for the Product and Payment services.
 
+Each client translates transport failures and downstream status codes into
+AppError subclasses, so the service layer never sees httpx.
+"""
+
+from dataclasses import dataclass
+from decimal import Decimal
 from enum import StrEnum
 import time
+from typing import Any
 
 import httpx
 from tenacity import (
@@ -11,13 +18,12 @@ from tenacity import (
     wait_exponential,
 )
 
-from app.config import get_settings
+from app.utils.errors import AppError, ConflictError, NotFoundError, ServiceUnavailableError
 from app.utils.logging import setup_logger
 from common.auth import internal_auth_headers
 from common.logging_config import get_correlation_id
 
 logger = setup_logger(__name__)
-settings = get_settings()
 
 CORRELATION_ID_HEADER = "X-Correlation-ID"
 
@@ -81,22 +87,28 @@ class CircuitBreaker:
         return False
 
 
-# Module-level singleton shared across the order service.
-_payment_circuit = CircuitBreaker(failure_threshold=5, recovery_timeout=30)
+@dataclass(frozen=True)
+class ProductInfo:
+    id: str
+    price: Decimal
+
+
+@dataclass(frozen=True)
+class PaymentResult:
+    id: str | None
+    status: str
+
+    @property
+    def succeeded(self) -> bool:
+        return self.status == "succeeded"
 
 
 def _common_headers() -> dict[str, str]:
-    """Build headers to forward the correlation ID to downstream services."""
     return {CORRELATION_ID_HEADER: get_correlation_id()}
 
 
 def _internal_headers() -> dict[str, str]:
-    """Headers for /internal/* endpoints: correlation ID plus the service token."""
     return {**_common_headers(), **internal_auth_headers()}
-
-
-class CircuitBreakerOpenError(Exception):
-    """Raised when the circuit breaker is open and blocking requests."""
 
 
 def _is_transient(exc: BaseException) -> bool:
@@ -106,98 +118,134 @@ def _is_transient(exc: BaseException) -> bool:
     return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code >= 500
 
 
-@retry(
-    retry=retry_if_exception(_is_transient),
-    wait=wait_exponential(multiplier=1, min=1, max=4),
-    stop=stop_after_attempt(PAYMENT_MAX_ATTEMPTS),
-    reraise=True,
-)
-async def _post_charge(payload: dict) -> dict:
-    async with httpx.AsyncClient(timeout=settings.PAYMENT_HTTP_TIMEOUT) as client:
-        resp = await client.post(
-            f"{settings.PAYMENT_SERVICE_URL}/internal/payments/charge",
-            headers=_internal_headers(),
-            json=payload,
-        )
-        resp.raise_for_status()
-        return resp.json()
+def _status_of(exc: httpx.HTTPError) -> int | None:
+    return exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
 
 
-async def charge_payment(
-    order_id: str,
-    amount: float,
-    idempotency_key: str,
-    card_last_four: str | None = None,
-) -> dict:
-    """Charge payment via Payment Service with retry and circuit breaker.
+class ProductClient:
+    def __init__(self, base_url: str, timeout: float) -> None:
+        self.base_url = base_url
+        self.timeout = timeout
+
+    async def get_product(self, product_id: str) -> ProductInfo:
+        try:
+            data = await self._request("GET", f"/products/{product_id}", headers=_common_headers())
+        except httpx.HTTPError as exc:
+            if _status_of(exc) == 404:
+                raise NotFoundError("Product", product_id)
+            raise self._unavailable("fetch product", exc)
+
+        price = data.get("price")
+        if not isinstance(price, int | float) or price <= 0:
+            logger.error(
+                "Product service returned an invalid price",
+                extra={"product_id": product_id, "price": price},
+            )
+            raise AppError(f"Product '{product_id}' has no valid price", 502)
+        return ProductInfo(id=product_id, price=Decimal(str(price)))
+
+    async def reserve_stock(self, product_id: str, quantity: int) -> None:
+        try:
+            await self._request(
+                "POST",
+                f"/internal/products/{product_id}/stock/decrement",
+                headers=_internal_headers(),
+                json={"quantity": quantity},
+            )
+        except httpx.HTTPError as exc:
+            status = _status_of(exc)
+            if status == 404:
+                raise NotFoundError("Product", product_id)
+            if status == 409:
+                raise ConflictError(f"Insufficient stock for product '{product_id}'", "stock")
+            raise self._unavailable("reserve stock", exc)
+
+    async def release_stock(self, product_id: str, quantity: int) -> None:
+        try:
+            await self._request(
+                "POST",
+                f"/internal/products/{product_id}/stock/increment",
+                headers=_internal_headers(),
+                json={"quantity": quantity},
+            )
+        except httpx.HTTPError as exc:
+            raise self._unavailable("release stock", exc)
+
+    async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout) as client:
+            resp = await client.request(method, path, **kwargs)
+            resp.raise_for_status()
+            return resp.json()
+
+    @staticmethod
+    def _unavailable(action: str, exc: httpx.HTTPError) -> ServiceUnavailableError:
+        logger.error(f"Product service failed to {action}", extra={"error": repr(exc)})
+        return ServiceUnavailableError("Product service is unavailable")
+
+
+class PaymentClient:
+    """Charges via the Payment Service with retry and a circuit breaker.
 
     Retry: up to 3 attempts with exponential backoff (1s, 2s) on connection errors,
     timeouts and 5xx. Safe because every attempt sends the same idempotency key.
-    Circuit breaker: counts one failure per charge_payment call (after retries are
+    Circuit breaker: counts one failure per charge() call (after retries are
     exhausted), opens after 5 consecutive failed calls, half-opens after 30s.
     """
-    if not _payment_circuit.allow_request():
-        logger.warning(
-            "Circuit breaker open, skipping payment call",
-            extra={"order_id": order_id},
-        )
-        raise CircuitBreakerOpenError(
-            f"Circuit breaker is open for payment service. "
-            f"Retry after {_payment_circuit.recovery_timeout}s."
-        )
 
-    logger.info(
-        "Calling payment service",
-        extra={"order_id": order_id, "amount": amount},
-    )
-    try:
-        result = await _post_charge(
-            {
-                "order_id": order_id,
-                "amount": str(amount),
-                "currency": "USD",
-                "idempotency_key": idempotency_key,
-                "card_last_four": card_last_four,
-            }
-        )
-    except Exception as exc:
-        if _is_transient(exc):
-            _payment_circuit.record_failure()
-        else:
+    def __init__(self, base_url: str, timeout: float, circuit: CircuitBreaker) -> None:
+        self.base_url = base_url
+        self.timeout = timeout
+        self.circuit = circuit
+
+    async def charge(
+        self,
+        order_id: str,
+        amount: Decimal,
+        idempotency_key: str,
+        card_last_four: str | None = None,
+    ) -> PaymentResult:
+        if not self.circuit.allow_request():
+            logger.warning(
+                "Circuit breaker open, skipping payment call", extra={"order_id": order_id}
+            )
+            raise ServiceUnavailableError(
+                f"Payment service is unavailable. Retry after {self.circuit.recovery_timeout}s."
+            )
+
+        logger.info("Calling payment service", extra={"order_id": order_id, "amount": str(amount)})
+        try:
+            data = await self._post_charge(
+                {
+                    "order_id": order_id,
+                    "amount": str(amount),
+                    "currency": "USD",
+                    "idempotency_key": idempotency_key,
+                    "card_last_four": card_last_four,
+                }
+            )
+        except httpx.HTTPError as exc:
+            if _is_transient(exc):
+                self.circuit.record_failure()
+                logger.error("Payment service unavailable", extra={"error": repr(exc)})
+                raise ServiceUnavailableError("Payment service is unavailable")
             # Payment service responded (e.g. 4xx), so it is healthy.
-            _payment_circuit.record_success()
-        raise
-    _payment_circuit.record_success()
-    return result
+            self.circuit.record_success()
+            logger.error("Payment service rejected the charge", extra={"error": repr(exc)})
+            raise AppError("Payment could not be processed", 502)
 
+        self.circuit.record_success()
+        return PaymentResult(id=data.get("id"), status=str(data.get("status")))
 
-async def check_and_reserve_stock(product_id: str, quantity: int) -> dict:
-    async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT) as client:
-        resp = await client.post(
-            f"{settings.PRODUCT_SERVICE_URL}/internal/products/{product_id}/stock/decrement",
-            headers=_internal_headers(),
-            json={"quantity": quantity},
-        )
-        resp.raise_for_status()
-        return resp.json()
-
-
-async def release_stock(product_id: str, quantity: int) -> dict:
-    async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT) as client:
-        resp = await client.post(
-            f"{settings.PRODUCT_SERVICE_URL}/internal/products/{product_id}/stock/increment",
-            headers=_internal_headers(),
-            json={"quantity": quantity},
-        )
-        resp.raise_for_status()
-        return resp.json()
-
-
-async def get_product(product_id: str) -> dict:
-    async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT) as client:
-        resp = await client.get(
-            f"{settings.PRODUCT_SERVICE_URL}/products/{product_id}",
-            headers=_common_headers(),
-        )
-        resp.raise_for_status()
-        return resp.json()
+    @retry(
+        retry=retry_if_exception(_is_transient),
+        wait=wait_exponential(multiplier=1, min=1, max=4),
+        stop=stop_after_attempt(PAYMENT_MAX_ATTEMPTS),
+        reraise=True,
+    )
+    async def _post_charge(self, payload: dict[str, Any]) -> dict[str, Any]:
+        async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout) as client:
+            resp = await client.post(
+                "/internal/payments/charge", headers=_internal_headers(), json=payload
+            )
+            resp.raise_for_status()
+            return resp.json()

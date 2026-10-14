@@ -3,15 +3,13 @@
 from decimal import Decimal
 import uuid
 
-from sqlalchemy import DateTime, Numeric, String, UniqueConstraint, func
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy import Numeric, String, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base import Base, TimestampMixin
 
 
-class Base(DeclarativeBase):
-    pass
-
-
-class Order(Base):
+class Order(Base, TimestampMixin):
     __tablename__ = "orders"
     # Keys are unique per user so one user can never claim or probe another's.
     __table_args__ = (
@@ -28,9 +26,3 @@ class Order(Base):
     )  # pending, confirmed, failed
     payment_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    created_at: Mapped[str] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[str] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
-    )
