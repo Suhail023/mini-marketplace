@@ -10,7 +10,7 @@ from typing import Any
 import aio_pika
 from aio_pika.abc import AbstractRobustConnection
 
-from shared.common.logging_config import setup_logger
+from common.logging_config import setup_logger
 
 logger = setup_logger(__name__)
 
