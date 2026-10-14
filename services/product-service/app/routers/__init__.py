@@ -1,3 +1,3 @@
-from app.routers.products import router
+from app.routers import internal, products
 
-__all__ = ["router"]
+__all__ = ["internal", "products"]

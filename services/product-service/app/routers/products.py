@@ -1,75 +1,74 @@
-from typing import Any
-
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
-from app.repositories.product_repository import ProductRepository
+from app.contracts.product import (
+    ProductCreateContract,
+    ProductListResponse,
+    ProductResponse,
+    ProductUpdateContract,
+    StockResponse,
+)
+from app.dependencies import get_product_service
 from app.services.product_service import ProductService
-from common.auth import Principal, require_admin
+from common.auth import require_admin
 
 router = APIRouter(prefix="/products", tags=["Products"])
 
 
-def get_product_service(db: AsyncSession = Depends(get_db)) -> ProductService:
-    repo = ProductRepository(db)
-    return ProductService(repo)
-
-
-@router.post("/", status_code=201)
+@router.post(
+    "/",
+    status_code=201,
+    response_model=ProductResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def create_product(
-    data: dict,
-    _admin: Principal = Depends(require_admin),
+    request: ProductCreateContract,
     service: ProductService = Depends(get_product_service),
-) -> Any:
-    response = await service.create_product(data)
-    return response.to_dict()
+) -> ProductResponse:
+    return await service.create_product(request)
 
 
-@router.get("/")
+@router.get("/", response_model=ProductListResponse)
 async def list_products(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     active_only: bool = Query(True),
     service: ProductService = Depends(get_product_service),
-) -> Any:
-    response = await service.list_products(skip=skip, limit=limit, active_only=active_only)
-    return response.to_dict()
+) -> ProductListResponse:
+    return await service.list_products(skip=skip, limit=limit, active_only=active_only)
 
 
-@router.get("/{product_id}")
+@router.get("/{product_id}", response_model=ProductResponse)
 async def get_product(
     product_id: str,
     service: ProductService = Depends(get_product_service),
-) -> Any:
-    response = await service.get_product(product_id)
-    return response.to_dict()
+) -> ProductResponse:
+    return await service.get_product(product_id)
 
 
-@router.patch("/{product_id}")
+@router.patch(
+    "/{product_id}",
+    response_model=ProductResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def update_product(
     product_id: str,
-    data: dict,
-    _admin: Principal = Depends(require_admin),
+    request: ProductUpdateContract,
     service: ProductService = Depends(get_product_service),
-) -> Any:
-    response = await service.update_product(product_id, data)
-    return response.to_dict()
+) -> ProductResponse:
+    return await service.update_product(product_id, request)
 
 
-@router.delete("/{product_id}", status_code=204)
+@router.delete("/{product_id}", status_code=204, dependencies=[Depends(require_admin)])
 async def delete_product(
     product_id: str,
-    _admin: Principal = Depends(require_admin),
     service: ProductService = Depends(get_product_service),
 ) -> None:
     await service.delete_product(product_id)
 
 
-@router.get("/{product_id}/stock")
+@router.get("/{product_id}/stock", response_model=StockResponse)
 async def get_stock(
     product_id: str,
     service: ProductService = Depends(get_product_service),
-) -> Any:
-    response = await service.get_stock(product_id)
-    return response.to_dict()
+) -> StockResponse:
+    return await service.get_stock(product_id)

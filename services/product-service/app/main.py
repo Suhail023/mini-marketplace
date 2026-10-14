@@ -1,41 +1,35 @@
 """Product Service - CRUD + stock management for the Mini Marketplace."""
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
-from app import database
 from app.config import Config, get_settings
-from app.database import close_db, init_db
+from app.database import db
 from app.models import Base
 from app.routers import internal, products
-from app.utils.errors import AppError, ConflictError, NotFoundError, ValidationError
 from app.utils.logging import setup_logger
 from common.auth import validate_auth_settings
+from common.errors import register_error_handlers
 from common.health import build_health_router
 from common.middleware import CORRELATION_ID_HEADER, CorrelationIDMiddleware
 
 logger = setup_logger(__name__)
 
 
-def create_app(config: Config = None) -> FastAPI:
-    if config is None:
-        config = get_settings()
+def create_app(config: Config | None = None) -> FastAPI:
+    config = config or get_settings()
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         validate_auth_settings(jwt=True, internal_token=True)
-        database_url = config.database.url
-        if "sqlite" in database_url or "aiosqlite" in database_url:
-            database_url = "sqlite+aiosqlite:///./product.db"
-        db_engine = init_db(database_url)
-        async with db_engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        db.init(config.database.url, echo=config.DEBUG)
+        await db.create_all(Base.metadata)
         logger.info(f"Database tables ensured for {config.SERVICE_NAME}")
         yield
-        await close_db()
+        await db.close()
         logger.info("Database connection closed")
 
     app = FastAPI(
@@ -57,67 +51,15 @@ def create_app(config: Config = None) -> FastAPI:
         allow_headers=["*"],
         expose_headers=[CORRELATION_ID_HEADER],
     )
-
-    @app.exception_handler(AppError)
-    async def app_error_handler(request: Request, exc: AppError):
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={
-                "error": {
-                    "message": exc.message,
-                    "type": exc.__class__.__name__,
-                    "details": exc.details,
-                }
-            },
-        )
-
-    @app.exception_handler(ValidationError)
-    async def validation_error_handler(request: Request, exc: ValidationError):
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={
-                "error": {
-                    "message": exc.message,
-                    "type": "ValidationError",
-                    "details": exc.details,
-                }
-            },
-        )
-
-    @app.exception_handler(NotFoundError)
-    async def not_found_error_handler(request: Request, exc: NotFoundError):
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={
-                "error": {
-                    "message": exc.message,
-                    "type": "NotFoundError",
-                    "details": exc.details,
-                }
-            },
-        )
-
-    @app.exception_handler(ConflictError)
-    async def conflict_error_handler(request: Request, exc: ConflictError):
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={
-                "error": {
-                    "message": exc.message,
-                    "type": "ConflictError",
-                    "details": exc.details,
-                }
-            },
-        )
+    register_error_handlers(app)
 
     app.include_router(products.router)
     app.include_router(internal.router)
-
     app.include_router(
         build_health_router(
             service_name=config.SERVICE_NAME,
             version=app.version,
-            get_session_factory=lambda: database.async_session_factory,
+            get_session_factory=lambda: db.session_factory,
         )
     )
 

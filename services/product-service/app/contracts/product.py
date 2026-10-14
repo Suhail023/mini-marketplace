@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from pydantic import Field
 
@@ -34,8 +34,8 @@ class ProductResponse(BaseContract):
     stock: int
     sku: str
     is_active: bool
-    created_at: datetime | None = Field(default_factory=datetime.now)
-    updated_at: datetime | None = Field(default_factory=datetime.now)
+    created_at: datetime
+    updated_at: datetime
 
     @classmethod
     def from_product_model(cls, product: "Product") -> "ProductResponse":
@@ -50,9 +50,6 @@ class ProductResponse(BaseContract):
             created_at=product.created_at,
             updated_at=product.updated_at,
         )
-
-    def to_dict(self) -> dict[str, Any]:
-        return self.model_dump(by_alias=True)
 
 
 class StockDecrementRequest(BaseContract):
@@ -70,19 +67,9 @@ class StockResponse(BaseContract):
 
     @classmethod
     def from_product_model(cls, product: "Product") -> "StockResponse":
-        return cls(
-            id=str(product.id),
-            name=product.name,
-            stock=product.stock,
-        )
-
-    def to_dict(self) -> dict[str, Any]:
-        return self.model_dump(by_alias=True)
+        return cls(id=str(product.id), name=product.name, stock=product.stock)
 
 
 class ProductListResponse(BaseContract):
     products: list[ProductResponse]
     total: int
-
-    def to_dict(self) -> dict[str, Any]:
-        return self.model_dump(by_alias=True)
