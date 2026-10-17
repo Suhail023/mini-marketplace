@@ -40,6 +40,7 @@ env/
 .env.local
 .env.*.local
 !.env.example
+/secrets/
 
 # Testing
 .pytest_cache/

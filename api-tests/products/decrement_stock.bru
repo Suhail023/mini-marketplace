@@ -1,5 +1,5 @@
 meta {
-  name: Decrement Stock
+  name: Decrement Stock (internal - not exposed)
   seq: 12
 }
 
@@ -11,4 +11,8 @@ post {
 
 body:json {
   "quantity": 2
+}
+
+assert {
+  res.status: eq 404
 }

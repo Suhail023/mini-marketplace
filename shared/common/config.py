@@ -41,8 +41,8 @@ class BaseServiceConfig(BaseSettings):
     RABBITMQ_QUEUE: str = "notification.order.created"
 
     # Security
-    SECRET_KEY: str = "change-me-in-production"
-    JWT_SECRET_KEY: str = "change-me-in-production"
+    # JWT_SECRET_KEY has no default on purpose; it is loaded and validated by
+    # common.auth / common.secrets (env var or JWT_SECRET_KEY_FILE).
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION_MINUTES: int = 60
 
@@ -60,6 +60,8 @@ class BaseServiceConfig(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        # .env is shared by every service and holds keys this model doesn't declare.
+        extra = "ignore"
 
 
 class APIGatewayConfig(BaseServiceConfig):

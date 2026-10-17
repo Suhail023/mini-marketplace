@@ -1,5 +1,5 @@
 meta {
-  name: Charge Payment
+  name: Charge Payment (internal - not exposed)
   seq: 17
 }
 
@@ -17,6 +17,6 @@ body:json {
   "card_last_four": "4242"
 }
 
-script:post-response {
-  bru.setVar("paymentId", res.body.id)
+assert {
+  res.status: eq 404
 }

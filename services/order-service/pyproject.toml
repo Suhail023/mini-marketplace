@@ -18,6 +18,8 @@ asyncpg = "^0.29.0"
 httpx = "^0.25.0"
 tenacity = "^8.2.0"
 aio-pika = "^9.4.0"
+# JWT verification + internal-token auth (shared/common/auth.py)
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"

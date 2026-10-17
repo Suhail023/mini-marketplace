@@ -13,6 +13,7 @@ from tenacity import (
 
 from app.config import get_settings
 from app.utils.logging import setup_logger
+from common.auth import internal_auth_headers
 from common.logging_config import get_correlation_id
 
 logger = setup_logger(__name__)
@@ -89,6 +90,11 @@ def _common_headers() -> dict[str, str]:
     return {CORRELATION_ID_HEADER: get_correlation_id()}
 
 
+def _internal_headers() -> dict[str, str]:
+    """Headers for /internal/* endpoints: correlation ID plus the service token."""
+    return {**_common_headers(), **internal_auth_headers()}
+
+
 class CircuitBreakerOpenError(Exception):
     """Raised when the circuit breaker is open and blocking requests."""
 
@@ -109,8 +115,8 @@ def _is_transient(exc: BaseException) -> bool:
 async def _post_charge(payload: dict) -> dict:
     async with httpx.AsyncClient(timeout=settings.PAYMENT_HTTP_TIMEOUT) as client:
         resp = await client.post(
-            f"{settings.PAYMENT_SERVICE_URL}/payments/charge",
-            headers=_common_headers(),
+            f"{settings.PAYMENT_SERVICE_URL}/internal/payments/charge",
+            headers=_internal_headers(),
             json=payload,
         )
         resp.raise_for_status()
@@ -168,8 +174,8 @@ async def charge_payment(
 async def check_and_reserve_stock(product_id: str, quantity: int) -> dict:
     async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT) as client:
         resp = await client.post(
-            f"{settings.PRODUCT_SERVICE_URL}/products/{product_id}/stock/decrement",
-            headers=_common_headers(),
+            f"{settings.PRODUCT_SERVICE_URL}/internal/products/{product_id}/stock/decrement",
+            headers=_internal_headers(),
             json={"quantity": quantity},
         )
         resp.raise_for_status()
@@ -179,8 +185,8 @@ async def check_and_reserve_stock(product_id: str, quantity: int) -> dict:
 async def release_stock(product_id: str, quantity: int) -> dict:
     async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT) as client:
         resp = await client.post(
-            f"{settings.PRODUCT_SERVICE_URL}/products/{product_id}/stock/increment",
-            headers=_common_headers(),
+            f"{settings.PRODUCT_SERVICE_URL}/internal/products/{product_id}/stock/increment",
+            headers=_internal_headers(),
             json={"quantity": quantity},
         )
         resp.raise_for_status()

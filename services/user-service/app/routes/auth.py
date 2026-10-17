@@ -8,7 +8,7 @@ from app.config import get_settings
 from app.contracts.auth import LoginRequest, RegisterRequest, TokenResponse
 from app.database import get_db
 from app.models.user import User
-from app.utils.jwt import create_access_token
+from app.utils.jwt import build_token_claims, create_access_token
 from app.utils.password import hash_password, verify_password
 
 router = APIRouter()
@@ -32,7 +32,7 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
             detail="User account is disabled",
         )
 
-    access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    access_token = create_access_token(data=build_token_claims(user.id, user.email))
     return TokenResponse(
         access_token=access_token,
         user_id=user.id,
@@ -59,7 +59,7 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
     await db.commit()
     await db.refresh(user)
 
-    access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    access_token = create_access_token(data=build_token_claims(user.id, user.email))
     return TokenResponse(
         access_token=access_token,
         user_id=user.id,
