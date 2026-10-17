@@ -1,11 +1,13 @@
 """RabbitMQ consumer for order events."""
 
-from app import database
+from typing import Any
+
 from app.config import get_settings
-from app.repositories.notification_repository import NotificationRepository
-from app.services.notification_service import NotificationService
+from app.database import db
+from app.dependencies import build_notification_service
 from app.utils.logging import setup_logger
-from shared.common.rabbitmq import consume_messages, get_connection
+from common.rabbitmq import consume_messages, get_connection
+from shared.events.order import OrderCreatedEvent
 
 logger = setup_logger(__name__)
 settings = get_settings()
@@ -14,12 +16,11 @@ QUEUE_NAME = "notification.order.created"
 ROUTING_KEY = "order.created"
 
 
-async def _handle_order_event(body: dict) -> None:
-    """Handle a single incoming OrderCreated event."""
-    async with database.async_session_factory() as session:
-        repo = NotificationRepository(session)
-        service = NotificationService(repo)
-        await service.handle_order_event(body)
+async def _handle_order_event(body: dict[str, Any]) -> None:
+    # A malformed event raises here and is dead-lettered by consume_messages.
+    event = OrderCreatedEvent.model_validate(body)
+    async with db.session() as session:
+        await build_notification_service(session).handle_order_event(event)
 
 
 async def run_consumer() -> None:

@@ -11,10 +11,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.database import close_db, init_db
+from app.database import db
 from app.models import Base
-from app.routes import auth, health, users
+from app.routers import auth, health, users
 from common.auth import validate_auth_settings
+from common.errors import register_error_handlers
 from common.logging_config import setup_logger
 from common.middleware import CORRELATION_ID_HEADER, CorrelationIDMiddleware
 
@@ -26,12 +27,16 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.SERVICE_NAME} v{settings.SERVICE_VERSION}")
     validate_auth_settings(jwt=True)
-    db_engine = init_db()
-    async with db_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    db.init(
+        settings.DATABASE_URL,
+        echo=settings.DEBUG,
+        pool_size=settings.DB_POOL_SIZE,
+        max_overflow=settings.DB_MAX_OVERFLOW,
+    )
+    await db.create_all(Base.metadata)
     logger.info("Database tables ensured")
     yield
-    await close_db()
+    await db.close()
     logger.info(f"Shutting down {settings.SERVICE_NAME}")
 
 
@@ -53,6 +58,7 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=[CORRELATION_ID_HEADER],
 )
+register_error_handlers(app)
 
 app.include_router(health.router)
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["authentication"])

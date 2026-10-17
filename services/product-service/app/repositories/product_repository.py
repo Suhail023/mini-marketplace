@@ -1,126 +1,81 @@
-from sqlalchemy import select, update
+from typing import Any
+
+from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.product import Product
-from app.utils.errors import AppError
-from app.utils.logging import setup_logger
-
-logger = setup_logger(__name__)
+from app.utils.errors import ConflictError
 
 
 class ProductRepository:
-    def __init__(self, db: AsyncSession):
-        self.db = db
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
 
-    async def create(self, product_data: dict) -> Product:
+    async def create(self, fields: dict[str, Any]) -> Product:
+        product = Product(**fields)
+        self.session.add(product)
         try:
-            product = Product(**product_data)
-            self.db.add(product)
-            await self.db.commit()
-            await self.db.refresh(product)
-            return product
-        except Exception as e:
-            await self.db.rollback()
-            logger.error(f"Error creating product: {e!s}")
-            raise AppError("Failed to create product", 500)
+            await self.session.commit()
+        except IntegrityError:
+            await self.session.rollback()
+            raise ConflictError(f"Product with SKU '{product.sku}' already exists", "sku")
+        await self.session.refresh(product)
+        return product
 
     async def get_by_id(self, product_id: str) -> Product | None:
-        try:
-            return await self.db.get(Product, product_id)
-        except Exception as e:
-            logger.error(f"Error fetching product {product_id}: {e!s}")
-            raise AppError("Failed to fetch product", 500)
+        return await self.session.get(Product, product_id)
 
     async def get_by_sku(self, sku: str) -> Product | None:
-        try:
-            stmt = select(Product).where(Product.sku == sku)
-            result = await self.db.execute(stmt)
-            return result.scalar_one_or_none()
-        except Exception as e:
-            logger.error(f"Error fetching product by SKU {sku}: {e!s}")
-            raise AppError("Failed to fetch product", 500)
+        result = await self.session.execute(select(Product).where(Product.sku == sku))
+        return result.scalar_one_or_none()
 
-    async def list_products(
-        self,
-        skip: int = 0,
-        limit: int = 20,
-        active_only: bool = True,
-    ) -> list[Product]:
-        try:
-            stmt = select(Product)
-            if active_only:
-                stmt = stmt.where(Product.is_active.is_(True))
-            stmt = stmt.offset(skip).limit(limit).order_by(Product.created_at.desc())
-            result = await self.db.execute(stmt)
-            return list(result.scalars().all())
-        except Exception as e:
-            logger.error(f"Error listing products: {e!s}")
-            raise AppError("Failed to list products", 500)
+    async def list_page(
+        self, skip: int, limit: int, active_only: bool
+    ) -> tuple[list[Product], int]:
+        stmt = select(Product)
+        if active_only:
+            stmt = stmt.where(Product.is_active.is_(True))
 
-    async def update(self, product_id: str, updates: dict) -> Product | None:
-        try:
-            product = await self.db.get(Product, product_id)
-            if not product:
-                return None
+        total = await self.session.scalar(select(func.count()).select_from(stmt.subquery()))
+        result = await self.session.execute(
+            stmt.order_by(Product.created_at.desc()).offset(skip).limit(limit)
+        )
+        return list(result.scalars().all()), total or 0
 
-            for key, value in updates.items():
-                if hasattr(product, key):
-                    setattr(product, key, value)
+    async def update(self, product: Product, fields: dict[str, Any]) -> Product:
+        for key, value in fields.items():
+            setattr(product, key, value)
+        await self.session.commit()
+        await self.session.refresh(product)
+        return product
 
-            await self.db.commit()
-            await self.db.refresh(product)
-            return product
-        except Exception as e:
-            await self.db.rollback()
-            logger.error(f"Error updating product {product_id}: {e!s}")
-            raise AppError("Failed to update product", 500)
-
-    async def delete(self, product_id: str) -> bool:
-        try:
-            product = await self.db.get(Product, product_id)
-            if not product:
-                return False
-
-            await self.db.delete(product)
-            await self.db.commit()
-            return True
-        except Exception as e:
-            await self.db.rollback()
-            logger.error(f"Error deleting product {product_id}: {e!s}")
-            raise AppError("Failed to delete product", 500)
+    async def delete(self, product: Product) -> None:
+        await self.session.delete(product)
+        await self.session.commit()
 
     async def decrement_stock(self, product_id: str, quantity: int) -> Product | None:
-        try:
-            stmt = (
-                update(Product)
-                .where(Product.id == product_id, Product.stock >= quantity)
-                .values(stock=Product.stock - quantity)
-            )
-            result = await self.db.execute(stmt)
-            if result.rowcount == 0:
-                return None
-
-            await self.db.commit()
-            return await self.db.get(Product, product_id)
-        except Exception as e:
-            await self.db.rollback()
-            logger.error(f"Error decrementing stock for {product_id}: {e!s}")
-            raise AppError("Failed to decrement stock", 500)
+        """Atomically decrement; returns None if the product is missing or short on stock."""
+        result = await self.session.execute(
+            update(Product)
+            .where(Product.id == product_id, Product.stock >= quantity)
+            .values(stock=Product.stock - quantity)
+        )
+        if result.rowcount == 0:
+            await self.session.rollback()
+            return None
+        await self.session.commit()
+        return await self._reload(product_id)
 
     async def increment_stock(self, product_id: str, quantity: int) -> Product | None:
-        try:
-            stmt = (
-                update(Product)
-                .where(Product.id == product_id)
-                .values(stock=Product.stock + quantity)
-            )
-            result = await self.db.execute(stmt)
-            if result.rowcount == 0:
-                return None
+        result = await self.session.execute(
+            update(Product).where(Product.id == product_id).values(stock=Product.stock + quantity)
+        )
+        if result.rowcount == 0:
+            await self.session.rollback()
+            return None
+        await self.session.commit()
+        return await self._reload(product_id)
 
-            await self.db.commit()
-            return await self.db.get(Product, product_id)
-        except Exception as e:
-            await self.db.rollback()
-            logger.error(f"Error incrementing stock for {product_id}: {e!s}")
-            raise AppError("Failed to increment stock", 500)
+    async def _reload(self, product_id: str) -> Product | None:
+        return await self.session.get(Product, product_id, populate_existing=True)

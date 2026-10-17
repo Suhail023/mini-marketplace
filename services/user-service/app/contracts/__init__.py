@@ -2,6 +2,7 @@
 
 from app.contracts.auth import (
     LoginRequest,
+    MessageResponse,
     RegisterRequest,
     TokenResponse,
     UpdateProfileRequest,
@@ -10,6 +11,7 @@ from app.contracts.auth import (
 
 __all__ = [
     "LoginRequest",
+    "MessageResponse",
     "RegisterRequest",
     "TokenResponse",
     "UpdateProfileRequest",

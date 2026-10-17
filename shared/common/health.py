@@ -18,7 +18,7 @@ async def check_database(get_session_factory: Callable[[], Any]) -> dict[str, st
     """Run SELECT 1 against the database.
 
     The session factory is resolved through a getter on every call because
-    services assign it in init_db() at startup; importing it by name would
+    services assign it in Database.init() at startup; importing it by name would
     capture the initial None forever.
     """
     session_factory = get_session_factory()

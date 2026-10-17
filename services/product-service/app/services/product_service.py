@@ -1,148 +1,72 @@
-from typing import Any
-
 from app.contracts.product import (
     ProductCreateContract,
     ProductListResponse,
     ProductResponse,
     ProductUpdateContract,
-    StockDecrementRequest,
-    StockIncrementRequest,
     StockResponse,
 )
+from app.models.product import Product
 from app.repositories.product_repository import ProductRepository
-from app.utils.errors import AppError, ConflictError, NotFoundError, ValidationError
+from app.utils.errors import ConflictError, NotFoundError
 from app.utils.logging import setup_logger
 
 logger = setup_logger(__name__)
 
 
 class ProductService:
-    def __init__(self, product_repository: ProductRepository):
+    def __init__(self, product_repository: ProductRepository) -> None:
         self.product_repository = product_repository
 
-    async def create_product(self, data: dict[str, Any]) -> ProductResponse:
-        logger.info("Processing product creation request")
+    async def create_product(self, request: ProductCreateContract) -> ProductResponse:
+        if await self.product_repository.get_by_sku(request.sku):
+            raise ConflictError(f"Product with SKU '{request.sku}' already exists", "sku")
 
-        try:
-            request_model = ProductCreateContract(**data)
-        except Exception as e:
-            raise ValidationError(str(e))
-
-        existing = await self.product_repository.get_by_sku(request_model.sku)
-        if existing:
-            raise ConflictError(f"Product with SKU '{request_model.sku}' already exists", "sku")
-
-        product_data = {
-            "name": request_model.name,
-            "description": request_model.description,
-            "price": request_model.price,
-            "stock": request_model.stock,
-            "sku": request_model.sku,
-            "is_active": request_model.is_active,
-        }
-
-        product = await self.product_repository.create(product_data)
-        logger.info(f"Successfully created product {product.id}")
+        product = await self.product_repository.create(request.model_dump())
+        logger.info("Product created", extra={"product_id": product.id})
         return ProductResponse.from_product_model(product)
 
     async def get_product(self, product_id: str) -> ProductResponse:
-        logger.info(f"Processing get product request for {product_id}")
+        return ProductResponse.from_product_model(await self._get_or_404(product_id))
 
-        product = await self.product_repository.get_by_id(product_id)
-        if not product:
-            raise NotFoundError("Product", product_id)
-
-        logger.info(f"Successfully retrieved product {product_id}")
-        return ProductResponse.from_product_model(product)
-
-    async def list_products(
-        self,
-        skip: int = 0,
-        limit: int = 20,
-        active_only: bool = True,
-    ) -> ProductListResponse:
-        logger.info("Processing list products request")
-
-        products = await self.product_repository.list_products(
-            skip=skip, limit=limit, active_only=active_only
-        )
-
-        logger.info(f"Successfully retrieved {len(products)} products")
+    async def list_products(self, skip: int, limit: int, active_only: bool) -> ProductListResponse:
+        products, total = await self.product_repository.list_page(skip, limit, active_only)
         return ProductListResponse(
             products=[ProductResponse.from_product_model(p) for p in products],
-            total=len(products),
+            total=total,
         )
 
-    async def update_product(self, product_id: str, data: dict[str, Any]) -> ProductResponse:
-        logger.info(f"Processing update product request for {product_id}")
+    async def update_product(
+        self, product_id: str, request: ProductUpdateContract
+    ) -> ProductResponse:
+        product = await self._get_or_404(product_id)
+        fields = request.model_dump(exclude_unset=True)
+        if fields:
+            product = await self.product_repository.update(product, fields)
+            logger.info("Product updated", extra={"product_id": product_id})
+        return ProductResponse.from_product_model(product)
 
-        try:
-            request_model = ProductUpdateContract(**data)
-        except Exception as e:
-            raise ValidationError(str(e))
-
-        product = await self.product_repository.get_by_id(product_id)
-        if not product:
-            raise NotFoundError("Product", product_id)
-
-        updates = request_model.model_dump(exclude_unset=True)
-        if not updates:
-            return ProductResponse.from_product_model(product)
-
-        updated_product = await self.product_repository.update(product_id, updates)
-        if not updated_product:
-            raise AppError(f"Failed to update product {product_id}", 500)
-
-        logger.info(f"Successfully updated product {product_id}")
-        return ProductResponse.from_product_model(updated_product)
-
-    async def delete_product(self, product_id: str) -> bool:
-        logger.info(f"Processing delete product request for {product_id}")
-
-        product = await self.product_repository.get_by_id(product_id)
-        if not product:
-            raise NotFoundError("Product", product_id)
-
-        deleted = await self.product_repository.delete(product_id)
-        logger.info(f"Successfully deleted product {product_id}")
-        return deleted
+    async def delete_product(self, product_id: str) -> None:
+        await self.product_repository.delete(await self._get_or_404(product_id))
+        logger.info("Product deleted", extra={"product_id": product_id})
 
     async def get_stock(self, product_id: str) -> StockResponse:
-        logger.info(f"Processing get stock request for {product_id}")
+        return StockResponse.from_product_model(await self._get_or_404(product_id))
 
+    async def decrement_stock(self, product_id: str, quantity: int) -> StockResponse:
+        product = await self.product_repository.decrement_stock(product_id, quantity)
+        if product is None:
+            await self._get_or_404(product_id)
+            raise ConflictError(f"Insufficient stock for product '{product_id}'", "stock")
+        return StockResponse.from_product_model(product)
+
+    async def increment_stock(self, product_id: str, quantity: int) -> StockResponse:
+        product = await self.product_repository.increment_stock(product_id, quantity)
+        if product is None:
+            raise NotFoundError("Product", product_id)
+        return StockResponse.from_product_model(product)
+
+    async def _get_or_404(self, product_id: str) -> Product:
         product = await self.product_repository.get_by_id(product_id)
-        if not product:
+        if product is None:
             raise NotFoundError("Product", product_id)
-
-        logger.info(f"Successfully retrieved stock for {product_id}")
-        return StockResponse.from_product_model(product)
-
-    async def decrement_stock(self, product_id: str, data: dict[str, Any]) -> StockResponse:
-        logger.info(f"Processing stock decrement request for {product_id}")
-
-        try:
-            request_model = StockDecrementRequest(**data)
-        except Exception as e:
-            raise ValidationError(str(e))
-
-        product = await self.product_repository.decrement_stock(product_id, request_model.quantity)
-        if not product:
-            raise NotFoundError("Product", product_id)
-
-        logger.info(f"Successfully decremented stock for {product_id}")
-        return StockResponse.from_product_model(product)
-
-    async def increment_stock(self, product_id: str, data: dict[str, Any]) -> StockResponse:
-        logger.info(f"Processing stock increment request for {product_id}")
-
-        try:
-            request_model = StockIncrementRequest(**data)
-        except Exception as e:
-            raise ValidationError(str(e))
-
-        product = await self.product_repository.increment_stock(product_id, request_model.quantity)
-        if not product:
-            raise NotFoundError("Product", product_id)
-
-        logger.info(f"Successfully incremented stock for {product_id}")
-        return StockResponse.from_product_model(product)
+        return product

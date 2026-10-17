@@ -1,97 +1,83 @@
 """Order repository."""
 
 import json
+from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.order import Order
 from app.models.outbox import OutboxEvent
-from app.utils.logging import setup_logger
-
-logger = setup_logger(__name__)
+from app.utils.errors import ConflictError
 
 
 class OrderRepository:
-    def __init__(self, db: AsyncSession):
-        self.db = db
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
 
-    async def create(self, order_data: dict) -> Order:
+    async def create(self, fields: dict[str, Any]) -> Order:
+        order = Order(**fields)
+        self.session.add(order)
         try:
-            order = Order(**order_data)
-            self.db.add(order)
-            await self.db.commit()
-            await self.db.refresh(order)
-            return order
+            await self.session.commit()
         except IntegrityError:
-            await self.db.rollback()
-            raise
+            await self.session.rollback()
+            raise ConflictError("Idempotency key is already in use", "idempotency_key")
+        await self.session.refresh(order)
+        return order
 
     async def get_by_id(self, order_id: str) -> Order | None:
-        return await self.db.get(Order, order_id)
+        return await self.session.get(Order, order_id)
 
     async def get_by_idempotency_key(self, user_id: str, idempotency_key: str) -> Order | None:
-        result = await self.db.execute(
+        result = await self.session.execute(
             select(Order).where(Order.user_id == user_id, Order.idempotency_key == idempotency_key)
         )
         return result.scalar_one_or_none()
 
-    async def update_status(
-        self, order_id: str, status: str, payment_id: str | None = None
-    ) -> Order | None:
-        order = await self.db.get(Order, order_id)
-        if not order:
-            return None
-        order.status = status
-        if payment_id:
-            order.payment_id = payment_id
-        await self.db.commit()
-        await self.db.refresh(order)
-        return order
-
-    async def update_status_with_outbox(
+    async def finalize_with_outbox(
         self,
-        order_id: str,
+        order: Order,
         status: str,
         payment_id: str | None,
-        event_payload: dict,
+        event_type: str,
+        event_payload: dict[str, Any],
         routing_key: str,
     ) -> Order:
-        """Update order status and write an outbox event in the same transaction.
+        """Set the final order status and enqueue its event in one transaction.
 
-        This is the core of the outbox pattern: the order status change and the
-        event write are atomic — either both succeed or both fail. A separate
-        background publisher polls the outbox table and pushes to RabbitMQ.
+        This is the core of the outbox pattern: the status change and the event
+        row commit atomically; the background publisher ships the event later.
         """
-        order = await self.db.get(Order, order_id)
-        if not order:
-            raise ValueError(f"Order {order_id} not found")
-
         order.status = status
         if payment_id:
             order.payment_id = payment_id
 
-        outbox_event = OutboxEvent(
-            aggregate_type="order",
-            aggregate_id=order_id,
-            event_type="OrderCreated",
-            payload=json.dumps(event_payload, default=str),
-            routing_key=routing_key,
-            status="pending",
+        self.session.add(
+            OutboxEvent(
+                aggregate_type="order",
+                aggregate_id=order.id,
+                event_type=event_type,
+                payload=json.dumps(event_payload, default=str),
+                routing_key=routing_key,
+                status="pending",
+            )
         )
-        self.db.add(outbox_event)
-
-        await self.db.commit()
-        await self.db.refresh(order)
+        await self.session.commit()
+        await self.session.refresh(order)
         return order
 
-    async def list_by_user(self, user_id: str, skip: int = 0, limit: int = 20) -> list[Order]:
-        result = await self.db.execute(
+    async def list_page_by_user(
+        self, user_id: str, skip: int, limit: int
+    ) -> tuple[list[Order], int]:
+        condition = Order.user_id == user_id
+        total = await self.session.scalar(select(func.count()).select_from(Order).where(condition))
+        result = await self.session.execute(
             select(Order)
-            .where(Order.user_id == user_id)
+            .where(condition)
             .order_by(Order.created_at.desc())
             .offset(skip)
             .limit(limit)
         )
-        return list(result.scalars().all())
+        return list(result.scalars().all()), total or 0

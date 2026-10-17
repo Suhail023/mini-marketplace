@@ -4,6 +4,7 @@ from app.contracts.product import (
     ProductResponse,
     ProductUpdateContract,
     StockDecrementRequest,
+    StockIncrementRequest,
     StockResponse,
 )
 
@@ -13,5 +14,6 @@ __all__ = [
     "ProductResponse",
     "ProductUpdateContract",
     "StockDecrementRequest",
+    "StockIncrementRequest",
     "StockResponse",
 ]

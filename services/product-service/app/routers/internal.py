@@ -1,10 +1,9 @@
 """Service-to-service endpoints. Not routed by the gateway; require the internal token."""
 
-from typing import Any
-
 from fastapi import APIRouter, Depends
 
-from app.routers.products import get_product_service
+from app.contracts.product import StockDecrementRequest, StockIncrementRequest, StockResponse
+from app.dependencies import get_product_service
 from app.services.product_service import ProductService
 from common.auth import require_internal_service
 
@@ -15,21 +14,19 @@ router = APIRouter(
 )
 
 
-@router.post("/{product_id}/stock/decrement")
+@router.post("/{product_id}/stock/decrement", response_model=StockResponse)
 async def decrement_stock(
     product_id: str,
-    data: dict,
+    request: StockDecrementRequest,
     service: ProductService = Depends(get_product_service),
-) -> Any:
-    response = await service.decrement_stock(product_id, data)
-    return response.to_dict()
+) -> StockResponse:
+    return await service.decrement_stock(product_id, request.quantity)
 
 
-@router.post("/{product_id}/stock/increment")
+@router.post("/{product_id}/stock/increment", response_model=StockResponse)
 async def increment_stock(
     product_id: str,
-    data: dict,
+    request: StockIncrementRequest,
     service: ProductService = Depends(get_product_service),
-) -> Any:
-    response = await service.increment_stock(product_id, data)
-    return response.to_dict()
+) -> StockResponse:
+    return await service.increment_stock(product_id, request.quantity)

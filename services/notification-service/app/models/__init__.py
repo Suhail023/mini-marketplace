@@ -1,5 +1,6 @@
 """Models package."""
 
-from app.models.notification import Base, Notification
+from app.models.base import Base
+from app.models.notification import Notification
 
 __all__ = ["Base", "Notification"]

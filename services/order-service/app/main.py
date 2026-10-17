@@ -1,19 +1,20 @@
 """Order Service - Orchestrates Product and Payment services."""
 
 import asyncio
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import database
 from app.config import get_settings
-from app.database import close_db, init_db
+from app.database import db
 from app.models import Base
-from app.publisher import run_outbox_publisher
+from app.publisher import OutboxPublisher
 from app.routers import orders
 from app.utils.logging import setup_logger
 from common.auth import validate_auth_settings
+from common.errors import register_error_handlers
 from common.health import build_health_router
 from common.middleware import CORRELATION_ID_HEADER, CorrelationIDMiddleware
 
@@ -23,24 +24,21 @@ settings = get_settings()
 
 def create_app() -> FastAPI:
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         validate_auth_settings(jwt=True, internal_token=True)
-        db_engine = init_db()
-        async with db_engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        db.init(settings.database.url, echo=settings.DEBUG)
+        await db.create_all(Base.metadata)
         logger.info("Order Service database tables ensured")
 
-        publisher_task = asyncio.create_task(run_outbox_publisher())
+        publisher_task = asyncio.create_task(OutboxPublisher().run())
         logger.info("Outbox publisher background task started")
 
         yield
 
         publisher_task.cancel()
-        try:
+        with suppress(asyncio.CancelledError):
             await publisher_task
-        except asyncio.CancelledError:
-            pass
-        await close_db()
+        await db.close()
         logger.info("Order Service shut down")
 
     app = FastAPI(
@@ -59,14 +57,14 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
         expose_headers=[CORRELATION_ID_HEADER],
     )
+    register_error_handlers(app)
 
     app.include_router(orders.router)
-
     app.include_router(
         build_health_router(
             service_name=settings.SERVICE_NAME,
             version=app.version,
-            get_session_factory=lambda: database.async_session_factory,
+            get_session_factory=lambda: db.session_factory,
         )
     )
 
