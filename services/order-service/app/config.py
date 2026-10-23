@@ -13,6 +13,13 @@ class DatabaseConfig:
     PASSWORD: str = os.getenv("DATABASE_PASSWORD", "postgres")
     NAME: str = os.getenv("DATABASE_NAME", "orderdb")
 
+    # Connection pool. Each order request needs one connection only briefly
+    # (never across remote calls), so these bound DB load, not saga concurrency.
+    POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "10"))
+    MAX_OVERFLOW: int = int(os.getenv("DB_MAX_OVERFLOW", "10"))
+    POOL_TIMEOUT: int = int(os.getenv("DB_POOL_TIMEOUT", "10"))
+    POOL_RECYCLE: int = int(os.getenv("DB_POOL_RECYCLE", "1800"))
+
     @property
     def url(self) -> str:
         if self.DATABASE_URL:
