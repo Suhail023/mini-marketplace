@@ -54,6 +54,8 @@ class OrderService:
         if existing:
             logger.info("Replaying order for idempotency key", extra={"order_id": existing.id})
             return OrderResponse.from_order_model(existing)
+        # Don't hold a pooled connection idle in transaction across the remote call.
+        await self.order_repository.end_transaction()
 
         product = await self.product_client.get_product(request.product_id)
 

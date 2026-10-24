@@ -26,7 +26,14 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         validate_auth_settings(jwt=True, internal_token=True)
-        db.init(settings.database.url, echo=settings.DEBUG)
+        db.init(
+            settings.database.url,
+            echo=settings.DEBUG,
+            pool_size=settings.database.POOL_SIZE,
+            max_overflow=settings.database.MAX_OVERFLOW,
+            pool_timeout=settings.database.POOL_TIMEOUT,
+            pool_recycle=settings.database.POOL_RECYCLE,
+        )
         await db.create_all(Base.metadata)
         logger.info("Order Service database tables ensured")
 

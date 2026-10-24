@@ -16,15 +16,25 @@ class OrderRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    async def end_transaction(self) -> None:
+        """Close the current transaction so its pooled connection is released.
+
+        Call before slow remote work; otherwise the connection sits idle in
+        transaction. expire_on_commit=False keeps loaded objects usable.
+        """
+        await self.session.commit()
+
     async def create(self, fields: dict[str, Any]) -> Order:
         order = Order(**fields)
         self.session.add(order)
         try:
-            await self.session.commit()
+            await self.session.flush()
         except IntegrityError:
             await self.session.rollback()
             raise ConflictError("Idempotency key is already in use", "idempotency_key")
+        # Refresh before commit so no transaction is left open for the saga's remote calls.
         await self.session.refresh(order)
+        await self.session.commit()
         return order
 
     async def get_by_id(self, order_id: str) -> Order | None:
@@ -64,8 +74,9 @@ class OrderRepository:
                 status="pending",
             )
         )
-        await self.session.commit()
+        await self.session.flush()
         await self.session.refresh(order)
+        await self.session.commit()
         return order
 
     async def list_page_by_user(
