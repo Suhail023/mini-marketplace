@@ -160,13 +160,13 @@ class ProductClient:
                 raise ConflictError(f"Insufficient stock for product '{product_id}'", "stock")
             raise self._unavailable("reserve stock", exc)
 
-    async def release_stock(self, product_id: str, quantity: int) -> None:
+    async def release_stock(self, product_id: str, quantity: int, order_id: str) -> None:
         try:
             await self._request(
                 "POST",
-                f"/internal/products/{product_id}/stock/increment",
+                f"/internal/products/{product_id}/stock/release",
                 headers=_internal_headers(),
-                json={"quantity": quantity},
+                json={"quantity": quantity, "order_id": order_id},
             )
         except httpx.HTTPError as exc:
             raise self._unavailable("release stock", exc)
@@ -181,6 +181,10 @@ class ProductClient:
     def _unavailable(action: str, exc: httpx.HTTPError) -> ServiceUnavailableError:
         logger.error(f"Product service failed to {action}", extra={"error": repr(exc)})
         return ServiceUnavailableError("Product service is unavailable")
+
+
+class PaymentOutcomeUnknownError(ServiceUnavailableError):
+    """A charge was attempted without a definitive payment result."""
 
 
 class PaymentClient:
@@ -224,15 +228,24 @@ class PaymentClient:
                 }
             )
         except httpx.HTTPError as exc:
-            if _is_transient(exc):
+            if isinstance(exc, httpx.TransportError | httpx.DecodingError) or _is_transient(exc):
                 self.circuit.record_failure()
                 logger.error("Payment service unavailable", extra={"error": repr(exc)})
-                raise ServiceUnavailableError("Payment service is unavailable")
+                raise PaymentOutcomeUnknownError(
+                    "Payment outcome unknown. Retry with the same checkout key."
+                ) from exc
             # Payment service responded (e.g. 4xx), so it is healthy.
             self.circuit.record_success()
             logger.error("Payment service rejected the charge", extra={"error": repr(exc)})
             raise AppError("Payment could not be processed", 502)
 
+        except ValueError as exc:
+            self.circuit.record_failure()
+            raise PaymentOutcomeUnknownError("Invalid payment response") from exc
+
+        if not isinstance(data, dict) or data.get("status") not in ("succeeded", "failed"):
+            self.circuit.record_failure()
+            raise PaymentOutcomeUnknownError("Missing final payment status")
         self.circuit.record_success()
         return PaymentResult(id=data.get("id"), status=str(data.get("status")))
 

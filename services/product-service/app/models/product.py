@@ -18,3 +18,11 @@ class Product(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(default=True)
 
     __table_args__ = ({"sqlite_autoincrement": True},)
+
+
+class StockRelease(Base):
+    __tablename__ = "stock_releases"
+
+    order_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    product_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    quantity: Mapped[int] = mapped_column(nullable=False)

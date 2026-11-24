@@ -1,4 +1,4 @@
-"""Outbox publisher — background task that drains the outbox table into RabbitMQ."""
+"""Background workers for RabbitMQ publishing and stock release retries."""
 
 import asyncio
 import json
@@ -7,6 +7,7 @@ import aio_pika
 
 from app.config import get_settings
 from app.database import db
+from app.dependencies import get_product_client
 from app.repositories.outbox_repository import OutboxRepository
 from app.utils.logging import setup_logger
 from common.rabbitmq import declare_exchange, get_connection, publish_message
@@ -34,14 +35,34 @@ class OutboxPublisher:
             self._exchange = await declare_exchange(connection)
         return self._exchange
 
-    async def publish_unpublished(self) -> None:
-        exchange = await self._get_exchange()
+    async def release_pending_stock(self) -> None:
         async with db.session() as session:
             outbox = OutboxRepository(session)
-            for event in await outbox.get_unpublished():
+            releases = await outbox.get_pending_releases()
+            await session.commit()
+            for release in releases:
+                try:
+                    payload = json.loads(release.payload)
+                    await get_product_client().release_stock(
+                        payload["product_id"], payload["quantity"], release.aggregate_id
+                    )
+                except Exception:
+                    await outbox.defer_release(release.id)
+                    logger.exception(
+                        "Stock release will be retried", extra={"order_id": release.aggregate_id}
+                    )
+                else:
+                    await outbox.mark_published(release.id)
+
+    async def publish_unpublished(self) -> None:
+        async with db.session() as session:
+            outbox = OutboxRepository(session)
+            events = await outbox.get_unpublished()
+            await session.commit()
+            for event in events:
                 try:
                     await publish_message(
-                        exchange=exchange,
+                        exchange=await self._get_exchange(),
                         routing_key=event.routing_key,
                         message=json.loads(event.payload),
                         correlation_id=event.id,
@@ -57,10 +78,23 @@ class OutboxPublisher:
 
     async def run(self) -> None:
         logger.info("Outbox publisher started")
+        async with asyncio.TaskGroup() as workers:
+            workers.create_task(self._poll_events())
+            workers.create_task(self._poll_stock_releases())
+
+    async def _poll_events(self) -> None:
         while True:
             try:
                 await self.publish_unpublished()
             except Exception:
                 logger.exception("Outbox publisher iteration failed")
                 self._exchange = None
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+
+    async def _poll_stock_releases(self) -> None:
+        while True:
+            try:
+                await self.release_pending_stock()
+            except Exception:
+                logger.exception("Stock release polling iteration failed")
             await asyncio.sleep(POLL_INTERVAL_SECONDS)

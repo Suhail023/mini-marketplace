@@ -3,10 +3,13 @@
 from datetime import datetime
 import uuid
 
-from sqlalchemy import DateTime, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
+
+RELEASE_PENDING = "release_pending"
+STOCK_RELEASE_EVENT = "StockReleaseRequested"
 
 
 class OutboxEvent(Base):
@@ -25,3 +28,12 @@ class OutboxEvent(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class StockReleaseRetry(Base):
+    __tablename__ = "stock_release_retries"
+
+    event_id: Mapped[str] = mapped_column(
+        ForeignKey("outbox_events.id", ondelete="CASCADE"), primary_key=True
+    )
+    retry_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

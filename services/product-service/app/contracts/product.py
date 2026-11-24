@@ -60,6 +60,10 @@ class StockIncrementRequest(BaseContract):
     quantity: int = Field(..., gt=0)
 
 
+class StockReleaseRequest(StockIncrementRequest):
+    order_id: str = Field(..., min_length=1, max_length=36)
+
+
 class StockResponse(BaseContract):
     id: str
     name: str

@@ -1,11 +1,12 @@
 """Outbox repository — data access for the transactional outbox table."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.outbox import OutboxEvent
+from app.models.outbox import RELEASE_PENDING, OutboxEvent, StockReleaseRetry
 
 UNPUBLISHED_STATUSES = ("pending", "failed")
 
@@ -22,6 +23,28 @@ class OutboxRepository:
             .limit(limit)
         )
         return list(result.scalars().all())
+
+    async def get_pending_releases(self, limit: int = 50) -> list[OutboxEvent]:
+        due_at = func.coalesce(StockReleaseRetry.retry_at, OutboxEvent.created_at)
+        result = await self.session.scalars(
+            select(OutboxEvent)
+            .outerjoin(StockReleaseRetry, StockReleaseRetry.event_id == OutboxEvent.id)
+            .where(OutboxEvent.status == RELEASE_PENDING, due_at <= datetime.now(UTC))
+            .order_by(due_at, OutboxEvent.id)
+            .limit(limit)
+        )
+        return list(result)
+
+    async def defer_release(self, event_id: str) -> None:
+        retry_at = datetime.now(UTC) + timedelta(minutes=1)
+        await self.session.execute(
+            insert(StockReleaseRetry)
+            .values(event_id=event_id, retry_at=retry_at)
+            .on_conflict_do_update(
+                index_elements=[StockReleaseRetry.event_id], set_={"retry_at": retry_at}
+            )
+        )
+        await self.session.commit()
 
     async def mark_published(self, event_id: str) -> None:
         await self.session.execute(

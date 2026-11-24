@@ -3,7 +3,7 @@
 from typing import Any
 import uuid
 
-from app.clients import PaymentClient, PaymentResult, ProductClient
+from app.clients import PaymentClient, PaymentOutcomeUnknownError, PaymentResult, ProductClient
 from app.contracts.order import CreateOrderRequest, OrderListResponse, OrderResponse
 from app.models.order import Order
 from app.repositories.order_repository import OrderRepository
@@ -16,6 +16,7 @@ logger = setup_logger(__name__)
 ORDER_EVENT_TYPE = "OrderCreated"
 ORDER_EVENTS_ROUTING_KEY = "order.created"
 
+STATUS_PAYMENT_UNKNOWN = "payment_unknown"
 STATUS_PENDING = "pending"
 STATUS_CONFIRMED = "confirmed"
 STATUS_FAILED = "failed"
@@ -51,6 +52,8 @@ class OrderService:
         existing = await self.order_repository.get_by_idempotency_key(
             user_id, request.idempotency_key
         )
+        if existing and existing.status == STATUS_PAYMENT_UNKNOWN:
+            return await self._recover_payment(existing)
         if existing:
             logger.info("Replaying order for idempotency key", extra={"order_id": existing.id})
             return OrderResponse.from_order_model(existing)
@@ -68,7 +71,8 @@ class OrderService:
                     "total_amount": product.price * request.quantity,
                     "status": STATUS_PENDING,
                     "idempotency_key": request.idempotency_key,
-                }
+                },
+                card_last_four=request.card_last_four,
             )
         except ConflictError:
             # A concurrent request with the same key won the insert; replay its order.
@@ -82,16 +86,26 @@ class OrderService:
         logger.info("Created pending order", extra={"order_id": order.id})
 
         try:
-            payment = await self._reserve_stock_and_charge(order, request.card_last_four)
+            await self.product_client.reserve_stock(order.product_id, order.quantity)
         except Exception:
             await self._finalize(order, STATUS_FAILED, None)
+            raise
+
+        try:
+            payment = await self._charge(order, request.card_last_four)
+        except PaymentOutcomeUnknownError:
+            order.status = STATUS_PAYMENT_UNKNOWN
+            await self.order_repository.end_transaction()
+            raise
+        except Exception:
+            await self._finalize(order, STATUS_FAILED, None, release_stock=True)
             raise
 
         if payment.succeeded:
             order = await self._finalize(order, STATUS_CONFIRMED, payment.id)
             logger.info("Order confirmed", extra={"order_id": order.id, "payment_id": payment.id})
         else:
-            order = await self._finalize(order, STATUS_FAILED, None)
+            order = await self._finalize(order, STATUS_FAILED, None, release_stock=True)
             logger.warning("Order failed: payment declined", extra={"order_id": order.id})
 
         return OrderResponse.from_order_model(order)
@@ -110,44 +124,33 @@ class OrderService:
             total=total,
         )
 
-    async def _reserve_stock_and_charge(
-        self, order: Order, card_last_four: str | None
-    ) -> PaymentResult:
-        """Reserve stock, then charge; releases the stock again if the charge does not succeed."""
-        await self.product_client.reserve_stock(order.product_id, order.quantity)
-        logger.info("Stock reserved", extra={"order_id": order.id})
+    async def _charge(self, order: Order, card_last_four: str | None) -> PaymentResult:
+        return await self.payment_client.charge(
+            order_id=order.id,
+            amount=order.total_amount,
+            idempotency_key=f"payment-{order.id}",
+            card_last_four=card_last_four,
+        )
 
-        try:
-            payment = await self.payment_client.charge(
-                order_id=order.id,
-                amount=order.total_amount,
-                idempotency_key=f"payment-{order.id}",
-                card_last_four=card_last_four,
-            )
-        except Exception:
-            await self._release_stock(order)
-            raise
+    async def _recover_payment(self, order: Order) -> OrderResponse:
+        card_last_four = await self.order_repository.get_payment_card_last_four(order.id)
+        await self.order_repository.end_transaction()
+        payment = await self._charge(order, card_last_four)
+        order = await self.order_repository.lock_for_recovery(order.id)
+        if order.status != STATUS_PAYMENT_UNKNOWN:
+            return OrderResponse.from_order_model(order)
+        status = STATUS_CONFIRMED if payment.succeeded else STATUS_FAILED
+        order = await self._finalize(
+            order,
+            status,
+            payment.id if payment.succeeded else None,
+            release_stock=not payment.succeeded,
+        )
+        return OrderResponse.from_order_model(order)
 
-        if not payment.succeeded:
-            await self._release_stock(order)
-        return payment
-
-    async def _release_stock(self, order: Order) -> None:
-        """Compensating action: restore stock that was reserved for a failed order."""
-        try:
-            await self.product_client.release_stock(order.product_id, order.quantity)
-            logger.info("Stock rolled back", extra={"order_id": order.id})
-        except Exception:
-            logger.error(
-                "STOCK ROLLBACK FAILED. Manual inventory reconciliation required.",
-                extra={
-                    "order_id": order.id,
-                    "product_id": order.product_id,
-                    "quantity": order.quantity,
-                },
-            )
-
-    async def _finalize(self, order: Order, status: str, payment_id: str | None) -> Order:
+    async def _finalize(
+        self, order: Order, status: str, payment_id: str | None, *, release_stock: bool = False
+    ) -> Order:
         return await self.order_repository.finalize_with_outbox(
             order,
             status,
@@ -155,4 +158,5 @@ class OrderService:
             ORDER_EVENT_TYPE,
             _build_event_payload(order, status, payment_id),
             ORDER_EVENTS_ROUTING_KEY,
+            release_stock=release_stock,
         )

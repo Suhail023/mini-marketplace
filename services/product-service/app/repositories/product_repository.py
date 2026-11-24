@@ -1,10 +1,11 @@
 from typing import Any
 
 from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.product import Product
+from app.models.product import Product, StockRelease
 from app.utils.errors import ConflictError
 
 
@@ -67,7 +68,23 @@ class ProductRepository:
         await self.session.commit()
         return await self._reload(product_id)
 
-    async def increment_stock(self, product_id: str, quantity: int) -> Product | None:
+    async def increment_stock(
+        self, product_id: str, quantity: int, order_id: str | None = None
+    ) -> Product | None:
+        if order_id is not None:
+            inserted = await self.session.scalar(
+                insert(StockRelease)
+                .values(order_id=order_id, product_id=product_id, quantity=quantity)
+                .on_conflict_do_nothing(index_elements=[StockRelease.order_id])
+                .returning(StockRelease.order_id)
+            )
+            if inserted is None:
+                previous = await self.session.get(StockRelease, order_id)
+                if previous.product_id != product_id or previous.quantity != quantity:
+                    raise ConflictError(
+                        "Stock release differs from the original request", "order_id"
+                    )
+                return await self._reload(product_id)
         result = await self.session.execute(
             update(Product).where(Product.id == product_id).values(stock=Product.stock + quantity)
         )
