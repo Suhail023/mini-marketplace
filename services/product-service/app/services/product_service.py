@@ -59,8 +59,10 @@ class ProductService:
             raise ConflictError(f"Insufficient stock for product '{product_id}'", "stock")
         return StockResponse.from_product_model(product)
 
-    async def increment_stock(self, product_id: str, quantity: int) -> StockResponse:
-        product = await self.product_repository.increment_stock(product_id, quantity)
+    async def increment_stock(
+        self, product_id: str, quantity: int, order_id: str | None = None
+    ) -> StockResponse:
+        product = await self.product_repository.increment_stock(product_id, quantity, order_id)
         if product is None:
             raise NotFoundError("Product", product_id)
         return StockResponse.from_product_model(product)

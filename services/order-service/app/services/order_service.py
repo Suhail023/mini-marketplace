@@ -86,20 +86,26 @@ class OrderService:
         logger.info("Created pending order", extra={"order_id": order.id})
 
         try:
-            payment = await self._reserve_stock_and_charge(order, request.card_last_four)
+            await self.product_client.reserve_stock(order.product_id, order.quantity)
+        except Exception:
+            await self._finalize(order, STATUS_FAILED, None)
+            raise
+
+        try:
+            payment = await self._charge(order, request.card_last_four)
         except PaymentOutcomeUnknownError:
             order.status = STATUS_PAYMENT_UNKNOWN
             await self.order_repository.end_transaction()
             raise
         except Exception:
-            await self._finalize(order, STATUS_FAILED, None)
+            await self._finalize(order, STATUS_FAILED, None, release_stock=True)
             raise
 
         if payment.succeeded:
             order = await self._finalize(order, STATUS_CONFIRMED, payment.id)
             logger.info("Order confirmed", extra={"order_id": order.id, "payment_id": payment.id})
         else:
-            order = await self._finalize(order, STATUS_FAILED, None)
+            order = await self._finalize(order, STATUS_FAILED, None, release_stock=True)
             logger.warning("Order failed: payment declined", extra={"order_id": order.id})
 
         return OrderResponse.from_order_model(order)
@@ -118,25 +124,6 @@ class OrderService:
             total=total,
         )
 
-    async def _reserve_stock_and_charge(
-        self, order: Order, card_last_four: str | None
-    ) -> PaymentResult:
-        """Reserve stock, then charge; releases the stock again if the charge does not succeed."""
-        await self.product_client.reserve_stock(order.product_id, order.quantity)
-        logger.info("Stock reserved", extra={"order_id": order.id})
-
-        try:
-            payment = await self._charge(order, card_last_four)
-        except PaymentOutcomeUnknownError:
-            raise
-        except Exception:
-            await self._release_stock(order)
-            raise
-
-        if not payment.succeeded:
-            await self._release_stock(order)
-        return payment
-
     async def _charge(self, order: Order, card_last_four: str | None) -> PaymentResult:
         return await self.payment_client.charge(
             order_id=order.id,
@@ -152,27 +139,17 @@ class OrderService:
         if order.status != STATUS_PAYMENT_UNKNOWN:
             return OrderResponse.from_order_model(order)
         status = STATUS_CONFIRMED if payment.succeeded else STATUS_FAILED
-        order = await self._finalize(order, status, payment.id if payment.succeeded else None)
-        if not payment.succeeded:
-            await self._release_stock(order)
+        order = await self._finalize(
+            order,
+            status,
+            payment.id if payment.succeeded else None,
+            release_stock=not payment.succeeded,
+        )
         return OrderResponse.from_order_model(order)
 
-    async def _release_stock(self, order: Order) -> None:
-        """Compensating action: restore stock that was reserved for a failed order."""
-        try:
-            await self.product_client.release_stock(order.product_id, order.quantity)
-            logger.info("Stock rolled back", extra={"order_id": order.id})
-        except Exception:
-            logger.error(
-                "STOCK ROLLBACK FAILED. Manual inventory reconciliation required.",
-                extra={
-                    "order_id": order.id,
-                    "product_id": order.product_id,
-                    "quantity": order.quantity,
-                },
-            )
-
-    async def _finalize(self, order: Order, status: str, payment_id: str | None) -> Order:
+    async def _finalize(
+        self, order: Order, status: str, payment_id: str | None, *, release_stock: bool = False
+    ) -> Order:
         return await self.order_repository.finalize_with_outbox(
             order,
             status,
@@ -180,4 +157,5 @@ class OrderService:
             ORDER_EVENT_TYPE,
             _build_event_payload(order, status, payment_id),
             ORDER_EVENTS_ROUTING_KEY,
+            release_stock=release_stock,
         )

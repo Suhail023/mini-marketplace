@@ -2,7 +2,12 @@
 
 from fastapi import APIRouter, Depends
 
-from app.contracts.product import StockDecrementRequest, StockIncrementRequest, StockResponse
+from app.contracts.product import (
+    StockDecrementRequest,
+    StockIncrementRequest,
+    StockReleaseRequest,
+    StockResponse,
+)
 from app.dependencies import get_product_service
 from app.services.product_service import ProductService
 from common.auth import require_internal_service
@@ -30,3 +35,12 @@ async def increment_stock(
     service: ProductService = Depends(get_product_service),
 ) -> StockResponse:
     return await service.increment_stock(product_id, request.quantity)
+
+
+@router.post("/{product_id}/stock/release", response_model=StockResponse)
+async def release_stock(
+    product_id: str,
+    request: StockReleaseRequest,
+    service: ProductService = Depends(get_product_service),
+) -> StockResponse:
+    return await service.increment_stock(product_id, request.quantity, request.order_id)

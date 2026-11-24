@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.order import Order
-from app.models.outbox import OutboxEvent
+from app.models.outbox import RELEASE_PENDING, STOCK_RELEASE_EVENT, OutboxEvent
 from app.utils.errors import ConflictError
 
 
@@ -63,6 +63,8 @@ class OrderRepository:
         event_type: str,
         event_payload: dict[str, Any],
         routing_key: str,
+        *,
+        release_stock: bool = False,
     ) -> Order:
         """Set the final order status and enqueue its event in one transaction.
 
@@ -70,6 +72,19 @@ class OrderRepository:
         row commit atomically; the background publisher ships the event later.
         """
         order.status = status
+        if release_stock:
+            self.session.add(
+                OutboxEvent(
+                    aggregate_type="order",
+                    aggregate_id=order.id,
+                    event_type=STOCK_RELEASE_EVENT,
+                    routing_key="stock.release",
+                    status=RELEASE_PENDING,
+                    payload=json.dumps(
+                        {"product_id": order.product_id, "quantity": order.quantity}
+                    ),
+                )
+            )
         if payment_id:
             order.payment_id = payment_id
 

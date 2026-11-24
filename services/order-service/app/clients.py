@@ -160,13 +160,13 @@ class ProductClient:
                 raise ConflictError(f"Insufficient stock for product '{product_id}'", "stock")
             raise self._unavailable("reserve stock", exc)
 
-    async def release_stock(self, product_id: str, quantity: int) -> None:
+    async def release_stock(self, product_id: str, quantity: int, order_id: str) -> None:
         try:
             await self._request(
                 "POST",
-                f"/internal/products/{product_id}/stock/increment",
+                f"/internal/products/{product_id}/stock/release",
                 headers=_internal_headers(),
-                json={"quantity": quantity},
+                json={"quantity": quantity, "order_id": order_id},
             )
         except httpx.HTTPError as exc:
             raise self._unavailable("release stock", exc)
@@ -228,7 +228,7 @@ class PaymentClient:
                 }
             )
         except httpx.HTTPError as exc:
-            if isinstance(exc, httpx.TransportError) or _is_transient(exc):
+            if isinstance(exc, httpx.TransportError | httpx.DecodingError) or _is_transient(exc):
                 self.circuit.record_failure()
                 logger.error("Payment service unavailable", extra={"error": repr(exc)})
                 raise PaymentOutcomeUnknownError(

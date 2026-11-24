@@ -11,7 +11,7 @@ from app.services.order_service import OrderService
 
 
 class PaymentTimeoutTest(IsolatedAsyncioTestCase):
-    async def check_recovery(self, payment_status, expected_status):
+    async def check_recovery(self, payment_status, expected_status, error=None):
         request = CreateOrderRequest(product_id="product", quantity=1, idempotency_key="checkout")
         order = Order(
             id="order",
@@ -30,7 +30,10 @@ class PaymentTimeoutTest(IsolatedAsyncioTestCase):
         product.get_product.return_value.price = order.total_amount
         payment = PaymentClient("http://payment", 1, CircuitBreaker())
         service = OrderService(repository, product, payment)
-        outcomes = [httpx.ReadTimeout("lost reply"), {"id": "payment", "status": payment_status}]
+        outcomes = [
+            error or httpx.ReadTimeout("lost reply"),
+            {"id": "payment", "status": payment_status},
+        ]
         with patch.object(payment, "_post_charge", new=AsyncMock(side_effect=outcomes)) as charge:
             with self.assertRaises(PaymentOutcomeUnknownError):
                 await service.create_order(request, "user")
@@ -42,10 +45,19 @@ class PaymentTimeoutTest(IsolatedAsyncioTestCase):
             self.assertEqual(charge.await_args_list[0], charge.await_args_list[1])
         self.assertEqual(repository.finalize_with_outbox.await_args.args[1], expected_status)
         product.reserve_stock.assert_awaited_once()
-        self.assertEqual(product.release_stock.await_count, int(payment_status == "failed"))
+        product.release_stock.assert_not_awaited()
+        self.assertEqual(
+            repository.finalize_with_outbox.await_args.kwargs["release_stock"],
+            payment_status == "failed",
+        )
 
     async def test_charge_succeeded_before_timeout(self):
         await self.check_recovery("succeeded", "confirmed")
 
     async def test_decline_after_timeout(self):
         await self.check_recovery("failed", "failed")
+
+    async def test_corrupt_gzip_after_successful_charge(self):
+        with self.assertRaises(httpx.DecodingError) as failure:
+            httpx.Response(200, headers={"Content-Encoding": "gzip"}, content=b"bad gzip")
+        await self.check_recovery("succeeded", "confirmed", failure.exception)

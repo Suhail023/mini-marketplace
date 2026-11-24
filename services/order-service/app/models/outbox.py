@@ -8,6 +8,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
 
+RELEASE_PENDING = "release_pending"
+STOCK_RELEASE_EVENT = "StockReleaseRequested"
+
 
 class OutboxEvent(Base):
     __tablename__ = "outbox_events"

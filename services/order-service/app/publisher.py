@@ -7,6 +7,7 @@ import aio_pika
 
 from app.config import get_settings
 from app.database import db
+from app.dependencies import get_product_client
 from app.repositories.outbox_repository import OutboxRepository
 from app.utils.logging import setup_logger
 from common.rabbitmq import declare_exchange, get_connection, publish_message
@@ -35,13 +36,24 @@ class OutboxPublisher:
         return self._exchange
 
     async def publish_unpublished(self) -> None:
-        exchange = await self._get_exchange()
         async with db.session() as session:
             outbox = OutboxRepository(session)
+            for release in await outbox.get_pending_releases():
+                try:
+                    payload = json.loads(release.payload)
+                    await get_product_client().release_stock(
+                        payload["product_id"], payload["quantity"], release.aggregate_id
+                    )
+                    await outbox.mark_published(release.id)
+                except Exception:
+                    logger.exception(
+                        "Stock release will be retried", extra={"order_id": release.aggregate_id}
+                    )
+
             for event in await outbox.get_unpublished():
                 try:
                     await publish_message(
-                        exchange=exchange,
+                        exchange=await self._get_exchange(),
                         routing_key=event.routing_key,
                         message=json.loads(event.payload),
                         correlation_id=event.id,

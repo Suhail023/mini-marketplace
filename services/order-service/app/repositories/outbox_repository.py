@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.outbox import OutboxEvent
+from app.models.outbox import RELEASE_PENDING, OutboxEvent
 
 UNPUBLISHED_STATUSES = ("pending", "failed")
 
@@ -22,6 +22,15 @@ class OutboxRepository:
             .limit(limit)
         )
         return list(result.scalars().all())
+
+    async def get_pending_releases(self, limit: int = 50) -> list[OutboxEvent]:
+        result = await self.session.scalars(
+            select(OutboxEvent)
+            .where(OutboxEvent.status == RELEASE_PENDING)
+            .order_by(OutboxEvent.created_at)
+            .limit(limit)
+        )
+        return list(result)
 
     async def mark_published(self, event_id: str) -> None:
         await self.session.execute(
