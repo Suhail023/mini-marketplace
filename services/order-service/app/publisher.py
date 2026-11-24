@@ -44,11 +44,14 @@ class OutboxPublisher:
                     await get_product_client().release_stock(
                         payload["product_id"], payload["quantity"], release.aggregate_id
                     )
-                    await outbox.mark_published(release.id)
                 except Exception:
+                    await outbox.defer_release(release.id)
                     logger.exception(
                         "Stock release will be retried", extra={"order_id": release.aggregate_id}
                     )
+
+                else:
+                    await outbox.mark_published(release.id)
 
             for event in await outbox.get_unpublished():
                 try:
