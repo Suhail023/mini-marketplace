@@ -183,6 +183,10 @@ class ProductClient:
         return ServiceUnavailableError("Product service is unavailable")
 
 
+class PaymentOutcomeUnknownError(ServiceUnavailableError):
+    """A charge was attempted without a definitive payment result."""
+
+
 class PaymentClient:
     """Charges via the Payment Service with retry and a circuit breaker.
 
@@ -224,15 +228,24 @@ class PaymentClient:
                 }
             )
         except httpx.HTTPError as exc:
-            if _is_transient(exc):
+            if isinstance(exc, httpx.TransportError) or _is_transient(exc):
                 self.circuit.record_failure()
                 logger.error("Payment service unavailable", extra={"error": repr(exc)})
-                raise ServiceUnavailableError("Payment service is unavailable")
+                raise PaymentOutcomeUnknownError(
+                    "Payment outcome unknown. Retry with the same checkout key."
+                ) from exc
             # Payment service responded (e.g. 4xx), so it is healthy.
             self.circuit.record_success()
             logger.error("Payment service rejected the charge", extra={"error": repr(exc)})
             raise AppError("Payment could not be processed", 502)
 
+        except ValueError as exc:
+            self.circuit.record_failure()
+            raise PaymentOutcomeUnknownError("Invalid payment response") from exc
+
+        if not isinstance(data, dict) or data.get("status") not in ("succeeded", "failed"):
+            self.circuit.record_failure()
+            raise PaymentOutcomeUnknownError("Missing final payment status")
         self.circuit.record_success()
         return PaymentResult(id=data.get("id"), status=str(data.get("status")))
 

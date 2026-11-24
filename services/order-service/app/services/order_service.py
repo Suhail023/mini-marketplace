@@ -3,7 +3,7 @@
 from typing import Any
 import uuid
 
-from app.clients import PaymentClient, PaymentResult, ProductClient
+from app.clients import PaymentClient, PaymentOutcomeUnknownError, PaymentResult, ProductClient
 from app.contracts.order import CreateOrderRequest, OrderListResponse, OrderResponse
 from app.models.order import Order
 from app.repositories.order_repository import OrderRepository
@@ -16,6 +16,7 @@ logger = setup_logger(__name__)
 ORDER_EVENT_TYPE = "OrderCreated"
 ORDER_EVENTS_ROUTING_KEY = "order.created"
 
+STATUS_PAYMENT_UNKNOWN = "payment_unknown"
 STATUS_PENDING = "pending"
 STATUS_CONFIRMED = "confirmed"
 STATUS_FAILED = "failed"
@@ -51,6 +52,9 @@ class OrderService:
         existing = await self.order_repository.get_by_idempotency_key(
             user_id, request.idempotency_key
         )
+        if existing and existing.status == STATUS_PAYMENT_UNKNOWN:
+            await self.order_repository.end_transaction()
+            return await self._recover_payment(existing, request.card_last_four)
         if existing:
             logger.info("Replaying order for idempotency key", extra={"order_id": existing.id})
             return OrderResponse.from_order_model(existing)
@@ -83,6 +87,10 @@ class OrderService:
 
         try:
             payment = await self._reserve_stock_and_charge(order, request.card_last_four)
+        except PaymentOutcomeUnknownError:
+            order.status = STATUS_PAYMENT_UNKNOWN
+            await self.order_repository.end_transaction()
+            raise
         except Exception:
             await self._finalize(order, STATUS_FAILED, None)
             raise
@@ -118,12 +126,9 @@ class OrderService:
         logger.info("Stock reserved", extra={"order_id": order.id})
 
         try:
-            payment = await self.payment_client.charge(
-                order_id=order.id,
-                amount=order.total_amount,
-                idempotency_key=f"payment-{order.id}",
-                card_last_four=card_last_four,
-            )
+            payment = await self._charge(order, card_last_four)
+        except PaymentOutcomeUnknownError:
+            raise
         except Exception:
             await self._release_stock(order)
             raise
@@ -131,6 +136,26 @@ class OrderService:
         if not payment.succeeded:
             await self._release_stock(order)
         return payment
+
+    async def _charge(self, order: Order, card_last_four: str | None) -> PaymentResult:
+        return await self.payment_client.charge(
+            order_id=order.id,
+            amount=order.total_amount,
+            idempotency_key=f"payment-{order.id}",
+            card_last_four=card_last_four,
+        )
+
+    async def _recover_payment(self, order: Order, card_last_four: str | None) -> OrderResponse:
+        # The payment service replays the original charge by its order-specific key.
+        payment = await self._charge(order, card_last_four)
+        order = await self.order_repository.lock_for_recovery(order.id)
+        if order.status != STATUS_PAYMENT_UNKNOWN:
+            return OrderResponse.from_order_model(order)
+        status = STATUS_CONFIRMED if payment.succeeded else STATUS_FAILED
+        order = await self._finalize(order, status, payment.id if payment.succeeded else None)
+        if not payment.succeeded:
+            await self._release_stock(order)
+        return OrderResponse.from_order_model(order)
 
     async def _release_stock(self, order: Order) -> None:
         """Compensating action: restore stock that was reserved for a failed order."""

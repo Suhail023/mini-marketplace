@@ -37,6 +37,15 @@ class OrderRepository:
         await self.session.commit()
         return order
 
+    async def lock_for_recovery(self, order_id: str) -> Order:
+        result = await self.session.execute(
+            select(Order)
+            .where(Order.id == order_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return result.scalar_one()
+
     async def get_by_id(self, order_id: str) -> Order | None:
         return await self.session.get(Order, order_id)
 
