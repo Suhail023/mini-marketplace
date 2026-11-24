@@ -40,13 +40,14 @@ def create_app() -> FastAPI:
         publisher_task = asyncio.create_task(OutboxPublisher().run())
         logger.info("Outbox publisher background task started")
 
-        yield
-
-        publisher_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await publisher_task
-        await db.close()
-        logger.info("Order Service shut down")
+        try:
+            yield
+        finally:
+            publisher_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await publisher_task
+            await db.close()
+            logger.info("Order Service shut down")
 
     app = FastAPI(
         title="Order Service",

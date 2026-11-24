@@ -53,8 +53,7 @@ class OrderService:
             user_id, request.idempotency_key
         )
         if existing and existing.status == STATUS_PAYMENT_UNKNOWN:
-            await self.order_repository.end_transaction()
-            return await self._recover_payment(existing, request.card_last_four)
+            return await self._recover_payment(existing)
         if existing:
             logger.info("Replaying order for idempotency key", extra={"order_id": existing.id})
             return OrderResponse.from_order_model(existing)
@@ -72,7 +71,8 @@ class OrderService:
                     "total_amount": product.price * request.quantity,
                     "status": STATUS_PENDING,
                     "idempotency_key": request.idempotency_key,
-                }
+                },
+                card_last_four=request.card_last_four,
             )
         except ConflictError:
             # A concurrent request with the same key won the insert; replay its order.
@@ -132,8 +132,9 @@ class OrderService:
             card_last_four=card_last_four,
         )
 
-    async def _recover_payment(self, order: Order, card_last_four: str | None) -> OrderResponse:
-        # The payment service replays the original charge by its order-specific key.
+    async def _recover_payment(self, order: Order) -> OrderResponse:
+        card_last_four = await self.order_repository.get_payment_card_last_four(order.id)
+        await self.order_repository.end_transaction()
         payment = await self._charge(order, card_last_four)
         order = await self.order_repository.lock_for_recovery(order.id)
         if order.status != STATUS_PAYMENT_UNKNOWN:

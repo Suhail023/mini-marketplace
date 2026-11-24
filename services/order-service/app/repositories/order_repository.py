@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.order import Order
+from app.models.order import Order, OrderPaymentInput
 from app.models.outbox import RELEASE_PENDING, STOCK_RELEASE_EVENT, OutboxEvent
 from app.utils.errors import ConflictError
 
@@ -24,7 +24,7 @@ class OrderRepository:
         """
         await self.session.commit()
 
-    async def create(self, fields: dict[str, Any]) -> Order:
+    async def create(self, fields: dict[str, Any], *, card_last_four: str | None) -> Order:
         order = Order(**fields)
         self.session.add(order)
         try:
@@ -32,10 +32,16 @@ class OrderRepository:
         except IntegrityError:
             await self.session.rollback()
             raise ConflictError("Idempotency key is already in use", "idempotency_key")
+        self.session.add(OrderPaymentInput(order_id=order.id, card_last_four=card_last_four))
         # Refresh before commit so no transaction is left open for the saga's remote calls.
         await self.session.refresh(order)
         await self.session.commit()
         return order
+
+    async def get_payment_card_last_four(self, order_id: str) -> str | None:
+        # Orders created before payment inputs were persisted use the payment service default.
+        payment_input = await self.session.get(OrderPaymentInput, order_id)
+        return payment_input.card_last_four if payment_input else None
 
     async def lock_for_recovery(self, order_id: str) -> Order:
         result = await self.session.execute(

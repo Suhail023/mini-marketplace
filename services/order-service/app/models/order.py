@@ -3,7 +3,7 @@
 from decimal import Decimal
 import uuid
 
-from sqlalchemy import Numeric, String, UniqueConstraint
+from sqlalchemy import ForeignKey, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -26,3 +26,12 @@ class Order(Base, TimestampMixin):
     )  # pending, confirmed, failed
     payment_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+
+
+class OrderPaymentInput(Base):
+    __tablename__ = "order_payment_inputs"
+
+    order_id: Mapped[str] = mapped_column(
+        ForeignKey("orders.id", ondelete="CASCADE"), primary_key=True
+    )
+    card_last_four: Mapped[str | None] = mapped_column(String(4), nullable=True)
